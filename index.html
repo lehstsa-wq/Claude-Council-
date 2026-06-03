@@ -354,28 +354,42 @@
       return out;
     }
 
-    // Splits the raw chairman verdict into clean verdict text + an optional
-    // Mermaid diagram code string. The diagram is appended by the model only
-    // when the "Generate diagrams" toggle is on and a diagram adds genuine value.
+    // Strips the first Mermaid block out of the raw chairman response and returns
+    // it separately so the verdict prose renders cleanly in Markdown while the
+    // diagram is isolated in its own card. The diagram can appear anywhere in the
+    // response — beginning, middle, or end — so the regex is global-aware and we
+    // collapse any double blank lines left behind after removal.
     function splitVerdictAndDiagram(rawText) {
       const match = rawText.match(/```mermaid\s*([\s\S]*?)```/);
       if (match) {
-        return {
-          verdictText: rawText.replace(/```mermaid[\s\S]*?```/, "").trim(),
-          diagramCode: match[1].trim(),
-        };
+        const diagramCode  = match[1].trim();
+        const verdictText  = rawText
+          .replace(/```mermaid[\s\S]*?```/, "")
+          .replace(/\n{3,}/g, "\n\n")  // collapse triple+ blank lines
+          .trim();
+        return { verdictText, diagramCode };
       }
       return { verdictText: rawText, diagramCode: null };
     }
 
     // Serializes all completed turns into a single string used as the cached
-    // prefix for follow-up API calls. Each new turn appends to this block,
-    // and Anthropic's ephemeral cache handles the growing context cheaply.
+    // prefix for follow-up API calls. Including the full advisor texts and peer
+    // review (not just the verdict) ensures the block reliably exceeds Anthropic's
+    // 1024-token minimum required for ephemeral cache eligibility. On a warm
+    // cache this entire block costs zero input tokens across all parallel advisor
+    // calls in the next turn.
     function buildPriorTurnsContext(completedTurns) {
       if (!completedTurns.length) return null;
-      return completedTurns.map((t, i) =>
-        `=== Turn ${i + 1} ===\nQuestion: ${t.prompt}\n\nVerdict:\n${t.verdict}`
-      ).join("\n\n---\n\n");
+      return completedTurns.map((t, i) => {
+        const advisorBlock = ADVISORS.map(a => `**${a.name}:** ${t.advisorTexts[a.id] || ""}`).join("\n\n");
+        return [
+          `=== Turn ${i + 1} ===`,
+          `Question: ${t.prompt}`,
+          `\nAdvisor Responses:\n${advisorBlock}`,
+          `\nPeer Review:\n${t.peerReview || ""}`,
+          `\nChairman Verdict:\n${t.verdict || ""}`,
+        ].join("\n");
+      }).join("\n\n---\n\n");
     }
 
     function relativeTime(ts) {
@@ -988,8 +1002,11 @@
         const namedBlock    = ADVISORS.map(a => `**${a.name}:**\n${collectedTexts[a.id]}`).join("\n\n");
         const fullTranscript = `${priorContext ? priorContext + "\n\n---\n\n" : ""}CURRENT QUESTION:\n${newPrompt}\n\nADVISOR RESPONSES:\n${namedBlock}\n\nPEER REVIEW:\n${peerReviewText}`;
 
+        // When diagrams are enabled the instruction is mandatory — the model MUST
+        // produce a diagram. The "Only include if…" hedge is intentionally absent
+        // because the user has explicitly requested visual output.
         const diagramInstruction = generateDiagrams
-          ? `\n\nIf a diagram would clarify your recommendation, append ONE Mermaid.js code block at the very end of your response:\n\n\`\`\`mermaid\n[diagram here]\n\`\`\`\n\nOnly include if it genuinely adds clarity.`
+          ? `\n\nREQUIRED: You MUST append exactly one Mermaid.js diagram at the very end of your response. This is mandatory. Use this exact format:\n\n\`\`\`mermaid\n[your diagram here]\n\`\`\`\n\nChoose the diagram type that best represents the decision structure: flowchart for decisions/processes, graph LR for relationships, sequenceDiagram for timelines, mindmap for hierarchies. The diagram must directly visualize the core recommendation.`
           : "";
 
         const synthesisPrompt = `Produce the verdict with exactly these five section headers:\n\n## Where the Council Agrees\n## Where the Council Clashes\n## Blind Spots the Council Caught\n## The Recommendation\n## The One Thing to Do First${diagramInstruction}`;
