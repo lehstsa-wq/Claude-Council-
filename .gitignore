@@ -1,0 +1,39 @@
+.DS_Store
+*.py
+*.png
+*.jpg
+*.pdf
+*.db
+ruvector.db
+.swarm/
+.claude-flow/
+.ruvector/
+Wells/
+Wells_New-Data/
+KDE*
+genecircuits/
+half_radar_outputs/
+Downloads/
+Library/
+Applications/
+Movies/
+Music/
+Pictures/
+Desktop/
+Documents/
+"Code Boot"/
+"untitled folder"/
+.zsh_history
+.zcompdump
+.claude.json
+.claude.json.backup
+.mcp.json
+.mcp-auth/
+CLAUDE.md
+package-lock.json
+*.js
+*.py
+*.txt
+Figure_1*
+Well\ 1.py
+"Bootstrap Test"

@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Council</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.4.0/dist/tabler-icons.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rubik:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           oklch(8% 0.012 55);
+      --bg2:          oklch(12% 0.010 55);
+      --bg3:          oklch(17% 0.008 55);
+      --bg4:          oklch(22% 0.008 55);
+      --bd:           oklch(30% 0.008 55 / 0.7);
+      --bd2:          oklch(40% 0.008 55 / 0.9);
+      --t1:           oklch(90% 0.006 55);
+      --t2:           oklch(60% 0.005 55);
+      --t3:           oklch(38% 0.005 55);
+      --amber:        oklch(72% 0.16 65);
+      --amber-tint:   oklch(72% 0.16 65 / 0.10);
+      --amber-ring:   oklch(72% 0.16 65 / 0.28);
+      --green:        oklch(65% 0.14 160);
+      --green-tint:   oklch(65% 0.14 160 / 0.08);
+      --green-ring:   oklch(65% 0.14 160 / 0.25);
+      --red:          oklch(62% 0.20 25);
+      --red-tint:     oklch(62% 0.20 25 / 0.08);
+      --red-ring:     oklch(62% 0.20 25 / 0.25);
+      --purple:       oklch(65% 0.17 290);
+      --purple-tint:  oklch(65% 0.17 290 / 0.08);
+      --purple-ring:  oklch(65% 0.17 290 / 0.25);
+      --blue:         oklch(65% 0.14 232);
+      --blue-tint:    oklch(65% 0.14 232 / 0.08);
+      --blue-ring:    oklch(65% 0.14 232 / 0.25);
+      --display: 'Bebas Neue', Impact, sans-serif;
+      --sans:    'Rubik', system-ui, sans-serif;
+      --mono:    'Fira Code', 'Courier New', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--t1); min-height: 100dvh; -webkit-font-smoothing: antialiased; }
+    textarea, input, button { font-family: inherit; }
+    button { cursor: pointer; }
+
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 2px; }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes spin   { to { transform: rotate(360deg); } }
+    @keyframes pulse  { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+    @keyframes blink  { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    .fade-up { animation: fadeUp .28s ease both; }
+    .spin     { animation: spin .85s linear infinite; }
+    .pulse    { animation: pulse 1.6s ease infinite; }
+
+    .md { font-size: 14px; line-height: 1.75; color: var(--t1); }
+    .md p { margin-bottom: .6em; }
+    .md p:last-child { margin-bottom: 0; }
+    .md ul, .md ol { padding-left: 1.3em; margin-bottom: .6em; }
+    .md li { margin-bottom: .2em; }
+    .md strong { font-weight: 600; }
+    .md em { font-style: italic; }
+    .md code { font-family: var(--mono); font-size: 12px; background: var(--bg4); padding: 1px 5px; border-radius: 3px; }
+    .md pre { background: var(--bg3); padding: 12px; border-radius: 6px; overflow-x: auto; margin-bottom: .6em; }
+    .md pre code { background: none; padding: 0; }
+    .md h1, .md h2, .md h3 { font-family: var(--display); letter-spacing: 1px; margin: .8em 0 .4em; }
+    .md h1:first-child, .md h2:first-child, .md h3:first-child { margin-top: 0; }
+    .md blockquote { padding-left: 12px; border-left: 1px solid var(--bd2); color: var(--t2); margin-bottom: .6em; font-style: italic; }
+    .md a { color: var(--amber); text-decoration: none; }
+
+    .tag { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { useState, useCallback, useEffect, useMemo } = React;
+
+    /* ── CONSTANTS ────────────────────────────────────────────── */
+
+    const MODELS = [
+      { id: "claude-opus-4-7",           label: "Opus 4.7",   sub: "Highest quality" },
+      { id: "claude-sonnet-4-6",         label: "Sonnet 4.6", sub: "Balanced · default" },
+      { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5",  sub: "Fastest · cheapest" },
+    ];
+
+    // Lever 3: model tiering — advisors + review use fast model, synthesis uses selected model
+    const FAST_MODEL = "claude-haiku-4-5-20251001";
+
+    const ADVISORS = [
+      {
+        id: "contrarian",     name: "The Contrarian",       accent: "var(--red)",
+        tint: "var(--red-tint)",   ring: "var(--red-ring)",     icon: "ti-sword",
+        tagline: "Hunts for fatal flaws",
+        // Lever 1: tightened to 100-word target
+        system: "You are The Contrarian on an LLM Council. Find the fatal flaw. Be direct, unsparing. 100 words max. No preamble.",
+      },
+      {
+        id: "firstprinciples", name: "First Principles",    accent: "var(--purple)",
+        tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-atom",
+        tagline: "Questions the question itself",
+        system: "You are The First Principles Thinker on an LLM Council. Strip assumptions, rebuild from scratch. Is the question itself wrong? 100 words max. No preamble.",
+      },
+      {
+        id: "expansionist",   name: "The Expansionist",     accent: "var(--green)",
+        tint: "var(--green-tint)", ring: "var(--green-ring)", icon: "ti-maximize",
+        tagline: "Finds hidden upside",
+        system: "You are The Expansionist on an LLM Council. Find the upside everyone misses. What's bigger? What adjacent opportunity hides here? 100 words max. No preamble.",
+      },
+      {
+        id: "outsider",       name: "The Outsider",         accent: "var(--amber)",
+        tint: "var(--amber-tint)", ring: "var(--amber-ring)", icon: "ti-eye",
+        tagline: "Zero context, clear eyes",
+        system: "You are The Outsider on an LLM Council. No context about this person or field. What's obvious to them but confusing to everyone else? 100 words max. No preamble.",
+      },
+      {
+        id: "executor",       name: "The Executor",         accent: "var(--blue)",
+        tint: "var(--blue-tint)", ring: "var(--blue-ring)", icon: "ti-bolt",
+        tagline: "What do you do Monday?",
+        system: "You are The Executor on an LLM Council. Fastest path to done. What do you do Monday morning, specifically? 100 words max. No preamble.",
+      },
+    ];
+
+    const CHAIRMAN = "You are the Chairman of an LLM Council. Synthesize five advisor perspectives and peer reviews into a definitive verdict. Be direct. Do not hedge. Weigh disagreements carefully. The verdict should be more insightful than any single advisor.";
+
+    /* ── STREAMING ────────────────────────────────────────────── */
+
+    // Builds a message body that caches `cachedText` (must be ≥1024 tokens) as
+    // the leading user content block, then appends `tailText` uncached.
+    // When cachedText is null, sends a plain string message (no caching).
+    function buildMessages(user, cachedText) {
+      if (!cachedText) return [{ role: "user", content: user }];
+      return [{
+        role: "user",
+        content: [
+          { type: "text", text: cachedText, cache_control: { type: "ephemeral" } },
+          { type: "text", text: user },
+        ],
+      }];
+    }
+
+    async function* streamClaude(system, user, apiKey, model, cachedText) {
+      const messages = buildMessages(user, cachedText);
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          // Enables prompt caching + 1-hour extended TTL
+          "anthropic-beta": "prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model, max_tokens: 1500, stream: true,
+          system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+          messages,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `HTTP ${res.status}`);
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const raw = line.slice(6).trim();
+            if (raw === "[DONE]") return;
+            try {
+              const ev = JSON.parse(raw);
+              if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") yield ev.delta.text;
+            } catch {}
+          }
+        }
+      } finally { reader.releaseLock(); }
+    }
+
+    async function collect(system, user, apiKey, model, onChunk, cachedText) {
+      let text = "";
+      for await (const chunk of streamClaude(system, user, apiKey, model, cachedText)) {
+        text += chunk;
+        onChunk?.(text);
+      }
+      return text;
+    }
+
+    /* ── VERDICT PARSE ────────────────────────────────────────── */
+
+    function parseVerdict(text) {
+      const defs = [
+        { key: "agrees",  re: /##\s*Where the Council Agrees\s*([\s\S]*?)(?=##|$)/i },
+        { key: "clashes", re: /##\s*Where the Council Clashes\s*([\s\S]*?)(?=##|$)/i },
+        { key: "blind",   re: /##\s*Blind Spots[^\n]*\s*([\s\S]*?)(?=##|$)/i },
+        { key: "rec",     re: /##\s*The Recommendation\s*([\s\S]*?)(?=##|$)/i },
+        { key: "first",   re: /##\s*The One Thing[^\n]*\s*([\s\S]*?)(?=##|$)/i },
+      ];
+      const out = {};
+      defs.forEach(({ key, re }) => { const m = text.match(re); out[key] = m ? m[1].trim() : ""; });
+      if (!out.rec) out.raw = text;
+      return out;
+    }
+
+    /* ── SMALL COMPONENTS ─────────────────────────────────────── */
+
+    function Md({ text, style }) {
+      const html = useMemo(() => {
+        if (!text) return "";
+        try { return marked.parse(text, { breaks: true, gfm: true }); }
+        catch { return `<p>${String(text).replace(/</g, "&lt;")}</p>`; }
+      }, [text]);
+      return <div className="md" style={style} dangerouslySetInnerHTML={{ __html: html }} />;
+    }
+
+    function useCopy(text) {
+      const [copied, setCopied] = useState(false);
+      const copy = useCallback(() => {
+        navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); }).catch(() => {});
+      }, [text]);
+      return [copied, copy];
+    }
+
+    function CopyBtn({ text, style }) {
+      const [copied, copy] = useCopy(text);
+      return (
+        <button onClick={copy} title={copied ? "Copied!" : "Copy"} style={{ background: "none", border: "none", padding: 4, color: copied ? "var(--green)" : "var(--t3)", cursor: "pointer", lineHeight: 1, transition: "color .15s", ...style }}>
+          <i className={`ti ${copied ? "ti-check" : "ti-copy"}`} style={{ fontSize: 13 }} />
+        </button>
+      );
+    }
+
+    function Divider({ label }) {
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "32px 0 20px" }}>
+          <span className="tag" style={{ color: "var(--t3)", flexShrink: 0 }}>{label}</span>
+          <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
+        </div>
+      );
+    }
+
+    /* ── API KEY SETUP ────────────────────────────────────────── */
+
+    function ApiKeySetup({ onSave }) {
+      const [key, setKey] = useState("");
+      const [busy, setBusy] = useState(false);
+      const [err, setErr] = useState("");
+
+      const submit = async () => {
+        const k = key.trim();
+        if (!k) return;
+        setBusy(true); setErr("");
+        try {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": k, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 5, messages: [{ role: "user", content: "ping" }] }),
+          });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error.message);
+          localStorage.setItem("council-key", k);
+          onSave(k);
+        } catch (e) { setErr(e.message || "Could not verify key."); }
+        finally { setBusy(false); }
+      };
+
+      return (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100dvh", padding: 24 }}>
+          <div className="fade-up" style={{ width: "100%", maxWidth: 440, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 12, padding: "40px 36px" }}>
+            <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Clearance required</p>
+            <h1 style={{ fontFamily: "var(--display)", fontSize: 52, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 24 }}>THE COUNCIL</h1>
+            <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.7, marginBottom: 28 }}>
+              Five independent AI advisors. Anonymous peer review. One chairman's verdict.
+              Your key stays in your browser and is sent only to Anthropic.
+            </p>
+            <label className="tag" style={{ display: "block", color: "var(--t3)", marginBottom: 8 }}>Anthropic API key</label>
+            <input
+              type="password" value={key} onChange={e => setKey(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()}
+              placeholder="sk-ant-..." autoFocus
+              style={{ width: "100%", padding: "11px 14px", fontSize: 14, fontFamily: "var(--mono)", background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: 6, color: "var(--t1)", outline: "none", marginBottom: 12 }}
+            />
+            {err && (
+              <div style={{ fontSize: 12, color: "var(--red)", padding: "8px 12px", marginBottom: 12, background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 5 }}>
+                <i className="ti ti-alert-triangle" style={{ marginRight: 6, fontSize: 12 }} />{err}
+              </div>
+            )}
+            <button
+              onClick={submit} disabled={!key.trim() || busy}
+              style={{ width: "100%", padding: "12px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: (!key.trim() || busy) ? 0.35 : 1, transition: "opacity .15s" }}
+            >
+              {busy ? "VERIFYING…" : "ENTER THE COUNCIL"}
+            </button>
+            <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 16, textAlign: "center" }}>
+              Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--amber)", textDecoration: "none" }}>console.anthropic.com</a>
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    /* ── SETTINGS PANEL ───────────────────────────────────────── */
+
+    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, onClearKey, onClose }) {
+      return (
+        <>
+          <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 90, background: "oklch(0% 0 0 / 0.55)" }} />
+          <div className="fade-up" style={{ position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 100, width: 300, background: "var(--bg2)", border: "1px solid var(--bd)", borderRight: "none", padding: "24px 20px", overflowY: "auto" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+              <span className="tag" style={{ color: "var(--t3)" }}>Settings</span>
+              <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", lineHeight: 1, padding: 4 }}>
+                <i className="ti ti-x" style={{ fontSize: 16 }} />
+              </button>
+            </div>
+
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Model</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 28 }}>
+              {MODELS.map(m => (
+                <button key={m.id} onClick={() => onModel(m.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", textAlign: "left", cursor: "pointer", background: model === m.id ? "var(--amber-tint)" : "var(--bg3)", border: `1px solid ${model === m.id ? "var(--amber-ring)" : "var(--bd)"}`, borderRadius: 6, transition: "all .15s" }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: model === m.id ? "var(--amber)" : "var(--bd2)", flexShrink: 0, transition: "background .15s" }} />
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>{m.label}</p>
+                    <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>{m.sub}</p>
+                  </div>
+                  {model === m.id && <i className="ti ti-check" style={{ fontSize: 13, color: "var(--amber)" }} />}
+                </button>
+              ))}
+            </div>
+
+            {/* Fast advisors toggle */}
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Cost optimization</p>
+            <button onClick={() => onFast(!fastAdvisors)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: fastAdvisors ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${fastAdvisors ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .15s" }}>
+              <div style={{ textAlign: "left" }}>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>Fast advisors</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Haiku for phases 1–2 · {model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "selected"} for verdict</p>
+              </div>
+              <div style={{ width: 32, height: 18, borderRadius: 9, background: fastAdvisors ? "var(--green)" : "var(--bd2)", transition: "background .2s", position: "relative", flexShrink: 0 }}>
+                <div style={{ position: "absolute", top: 2, left: fastAdvisors ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "var(--t1)", transition: "left .2s" }} />
+              </div>
+            </button>
+            {fastAdvisors && <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 28 }}>~73% cheaper · saves ~$0.065/session on Sonnet</p>}
+            {!fastAdvisors && <div style={{ marginBottom: 28 }} />}
+
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>API Key</p>
+            <div style={{ padding: "10px 12px", marginBottom: 10, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6 }}>
+              <p style={{ fontSize: 12, fontFamily: "var(--mono)", color: "var(--t3)", wordBreak: "break-all" }}>{apiKey.slice(0, 14)}{"•".repeat(18)}</p>
+            </div>
+            <button onClick={onClearKey} style={{ fontSize: 12, color: "var(--red)", background: "none", border: "1px solid var(--red-ring)", padding: "7px 12px", borderRadius: 5, cursor: "pointer" }}>
+              <i className="ti ti-trash" style={{ fontSize: 12, marginRight: 5 }} />Remove key
+            </button>
+          </div>
+        </>
+      );
+    }
+
+    /* ── PHASE STEPPER ────────────────────────────────────────── */
+
+    function PhaseStepper({ phase }) {
+      const steps = [{ id: "advisors", label: "Advisors" }, { id: "review", label: "Peer review" }, { id: "synthesis", label: "Chairman" }];
+      const idx = steps.findIndex(s => s.id === phase);
+      return (
+        <div style={{ display: "flex", alignItems: "center", padding: "16px 20px", marginBottom: 24, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+          {steps.map(({ id, label }, i) => {
+            const done = i < idx, live = i === idx;
+            return (
+              <React.Fragment key={id}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${done ? "var(--green)" : live ? "var(--amber)" : "var(--bd2)"}`, background: done ? "var(--green)" : live ? "var(--amber-tint)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .4s" }}>
+                    {done
+                      ? <i className="ti ti-check" style={{ fontSize: 12, color: "var(--bg)" }} />
+                      : live
+                        ? <div className="spin" style={{ width: 11, height: 11, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%" }} />
+                        : <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--bd2)" }} />}
+                  </div>
+                  <span className="tag" style={{ fontSize: 9, color: live ? "var(--amber)" : done ? "var(--green)" : "var(--t3)", whiteSpace: "nowrap" }}>{label}</span>
+                </div>
+                {i < 2 && <div style={{ flex: 1, height: 1, margin: "0 8px 14px", background: done ? "var(--green)" : "var(--bd)", transition: "background .4s" }} />}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      );
+    }
+
+    /* ── ADVISOR ROW (live) ───────────────────────────────────── */
+
+    function AdvisorRow({ advisor, live, done, phase }) {
+      const isReview = phase === "review";
+      return (
+        <div style={{ padding: "14px 18px", background: done ? "var(--green-tint)" : "var(--bg2)", border: `1px solid ${done ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 7, marginBottom: 6, transition: "background .3s, border-color .3s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: live ? 10 : 0 }}>
+            {done
+              ? <i className="ti ti-check" style={{ fontSize: 14, color: "var(--green)", flexShrink: 0 }} />
+              : <i className={`ti ${advisor.icon} pulse`} style={{ fontSize: 14, color: advisor.accent, flexShrink: 0 }} />}
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{advisor.name}</span>
+              <span className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{advisor.tagline}</span>
+            </div>
+            <span className="tag" style={{ fontSize: 9, color: done ? "var(--green)" : "var(--t3)" }}>
+              {done ? (isReview ? "reviewed" : "responded") : (isReview ? "reviewing…" : "deliberating…")}
+            </span>
+          </div>
+          {live && (
+            <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 72, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
+              {live}
+              {!done && <span style={{ animation: "blink .7s step-end infinite", color: advisor.accent }}>▋</span>}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── ACCORDION ────────────────────────────────────────────── */
+
+    function Accordion({ label, sub, accent, tint, ring, isOpen, onToggle, children }) {
+      return (
+        <div style={{ border: `1px solid ${isOpen ? ring : "var(--bd)"}`, borderRadius: 7, overflow: "hidden", transition: "border-color .2s", marginBottom: 5, background: isOpen ? tint : "transparent" }}>
+          <button onClick={onToggle} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "13px 18px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: isOpen ? accent : "var(--bd2)", transition: "background .2s" }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", flex: 1 }}>{label}</span>
+            <span className="tag" style={{ color: "var(--t3)", marginRight: 8, fontSize: 9 }}>{sub}</span>
+            <i className={`ti ti-chevron-${isOpen ? "up" : "down"}`} style={{ fontSize: 13, color: "var(--t3)" }} />
+          </button>
+          {isOpen && (
+            <div className="fade-up" style={{ padding: "4px 20px 20px 36px", borderTop: "1px solid var(--bd)" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                <CopyBtn text={typeof children === "string" ? children : ""} />
+              </div>
+              <Md text={typeof children === "string" ? children : ""} />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── VERDICT SECTION ──────────────────────────────────────── */
+
+    function VerdictSection({ label, icon, accent, tint, ring, text }) {
+      if (!text) return null;
+      return (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <i className={`ti ${icon}`} style={{ fontSize: 13, color: accent }} />
+              <span className="tag" style={{ color: accent, fontSize: 10 }}>{label}</span>
+            </div>
+            <CopyBtn text={text} />
+          </div>
+          <div style={{ padding: "18px 20px", background: tint, border: `1px solid ${ring}`, borderRadius: 8 }}>
+            <Md text={text} />
+          </div>
+        </div>
+      );
+    }
+
+    /* ── COUNCIL (MAIN) ───────────────────────────────────────── */
+
+    function Council({ apiKey, onClearKey }) {
+      const [q,            setQ]            = useState("");
+      const [phase,        setPhase]        = useState("idle");
+      const [live,         setLive]         = useState({});
+      const [liveRev,      setLiveRev]      = useState("");   // single consolidated review
+      const [liveVerdict,  setLiveVerdict]  = useState("");
+      const [advisorDone,  setAdvisorDone]  = useState({});
+      const [finalTexts,   setFinalTexts]   = useState({});
+      const [peerReview,   setPeerReview]   = useState("");   // single review text
+      const [verdict,      setVerdict]      = useState("");
+      const [open,         setOpen]         = useState({});
+      const [error,        setError]        = useState(null);
+      const [model,        setModel]        = useState(() => localStorage.getItem("council-model") || MODELS[1].id);
+      const [fastAdvisors, setFastAdvisors] = useState(() => localStorage.getItem("council-fast") !== "false");
+      const [showSettings, setShowSettings] = useState(false);
+
+      const advisorModel = fastAdvisors ? FAST_MODEL : model;
+
+      const isLoading = ["advisors", "review", "synthesis"].includes(phase);
+      const tog = k => setOpen(p => ({ ...p, [k]: !p[k] }));
+      const modelLabel = m => MODELS.find(x => x.id === m)?.label ?? m;
+
+      useEffect(() => { localStorage.setItem("council-model", model); }, [model]);
+      useEffect(() => { localStorage.setItem("council-fast", fastAdvisors); }, [fastAdvisors]);
+
+      const run = useCallback(async () => {
+        if (!q.trim() || isLoading) return;
+        setError(null);
+        setLive({}); setLiveRev(""); setLiveVerdict("");
+        setAdvisorDone({});
+        setFinalTexts({}); setPeerReview(""); setVerdict(""); setOpen({});
+
+        try {
+          /* Phase 1: Advisors — cheap fast model, 100-word responses */
+          setPhase("advisors");
+          const Q = `Question for the council:\n\n---\n${q}\n---\n\nRespond from your perspective only. Be direct. Lean fully into your angle.`;
+          const texts = {};
+          await Promise.all(ADVISORS.map(({ id, system }) =>
+            collect(system, Q, apiKey, advisorModel, full => {  // Lever 3: fast model
+              texts[id] = full;
+              setLive(prev => ({ ...prev, [id]: full }));
+            }).then(() => setAdvisorDone(prev => ({ ...prev, [id]: true })))
+          ));
+          setFinalTexts({ ...texts });
+
+          /* Phase 2: Single consolidated peer review — 1 call instead of 5 */
+          setPhase("review");
+          const shuffled  = [...ADVISORS].sort(() => Math.random() - 0.5);
+          const letters   = Object.fromEntries(shuffled.map((a, i) => [String.fromCharCode(65 + i), a.id]));
+          // Shared cached block: all 5 responses in shuffled anonymous order
+          const anonBlock = Object.entries(letters).map(([l, id]) => `**Advisor ${l}:**\n${texts[id]}`).join("\n\n");
+          const reviewTail = `Question: "${q}"\n\nAnalyze the five advisor responses above:\n1. Strongest response (letter + one-sentence reason)\n2. Biggest blind spot (letter + what it missed)\n3. Critical insight ALL responses missed\n4. The sharpest point of disagreement for the Chairman\n\n200 words max.`;
+          const reviewText = await collect(
+            "You are an impartial Council Analyst. Evaluate the five advisor responses with precision and rigor. No preamble.",
+            reviewTail, apiKey, advisorModel,  // Lever 3: fast model
+            full => setLiveRev(full),
+            anonBlock   // cached prefix
+          );
+          setPeerReview(reviewText);
+
+          /* Phase 3: Chairman synthesis — full transcript cached, best model */
+          setPhase("synthesis");
+          const aBlock = ADVISORS.map(a => `**${a.name}:**\n${texts[a.id]}`).join("\n\n");
+          const transcriptCache = `SESSION QUESTION:\n${q}\n\nADVISOR RESPONSES:\n\n${aBlock}\n\nCONSOLIDATED PEER REVIEW:\n${reviewText}`;
+          const SQ = `Produce the verdict with exactly these five section headers:\n\n## Where the Council Agrees\n## Where the Council Clashes\n## Blind Spots the Council Caught\n## The Recommendation\n## The One Thing to Do First`;
+          const cv = await collect(CHAIRMAN, SQ, apiKey, model, full => setLiveVerdict(full), transcriptCache); // best model
+          setVerdict(cv);
+          setPhase("done");
+        } catch (e) {
+          setError(e.message || "Something went wrong.");
+          setPhase("idle");
+        }
+      }, [q, isLoading, apiKey, model]);
+
+      const sec = useMemo(() => verdict ? parseVerdict(verdict) : null, [verdict]);
+
+      const exportMd = () => {
+        const md = [`# Council Verdict\n\n**Question:** ${q}\n\n---\n`, verdict, `\n\n---\n\n## Advisor Transcripts\n`, ...ADVISORS.map(a => `\n### ${a.name}\n${finalTexts[a.id] || ""}`), `\n\n---\n\n## Peer Review\n\n${peerReview}`].join("");
+        const blob = new Blob([md], { type: "text/markdown" });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href = url; a.download = "council-verdict.md"; a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      return (
+        <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 0 80px" }}>
+          {showSettings && (
+            <SettingsPanel apiKey={apiKey} model={model} onModel={setModel}
+              fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
+              onClearKey={() => { onClearKey(); setShowSettings(false); }}
+              onClose={() => setShowSettings(false)} />
+          )}
+
+          {/* Header */}
+          <div style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 36 }}>
+            <div>
+              <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Intelligence briefing system</p>
+              <h1 style={{ fontFamily: "var(--display)", fontSize: 60, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 8 }}>THE COUNCIL</h1>
+              <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, maxWidth: "50ch" }}>
+                Five independent advisors. Anonymous peer review. One verdict.<br />
+                Each advisor runs in its own context — no perspective bleed.
+              </p>
+            </div>
+            <button onClick={() => setShowSettings(true)} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer" }}>
+              <i className="ti ti-settings" style={{ fontSize: 14 }} />
+              {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)}
+            </button>
+          </div>
+
+          <div style={{ padding: "0 32px" }}>
+
+            {/* ── Idle / Done: input ── */}
+            {(phase === "idle" || phase === "done") && (
+              <div className="fade-up">
+                {phase === "done" && <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>New session</p>}
+
+                <textarea
+                  value={q} onChange={e => setQ(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }}
+                  placeholder="What decision should the council pressure-test? Be specific — context sharpens the output."
+                  style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)" }}
+                />
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 28px" }}>
+                  <button onClick={run} disabled={!q.trim()} style={{ flex: 1, padding: "13px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !q.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
+                    CONVENE THE COUNCIL
+                  </button>
+                  <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
+                </div>
+
+                {error && (
+                  <div style={{ padding: "11px 15px", marginBottom: 20, background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
+                    <i className="ti ti-alert-circle" style={{ marginRight: 7 }} />{error}
+                  </div>
+                )}
+
+                <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>The five advisors</p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {ADVISORS.map((a, i) => (
+                    <div key={a.id} style={{ gridColumn: i === 4 ? "span 2" : undefined, padding: "12px 16px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
+                      </div>
+                      <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{a.tagline}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Loading ── */}
+            {isLoading && (
+              <div>
+                <PhaseStepper phase={phase} />
+
+                {phase === "advisors" && (
+                  <div>
+                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Advisors deliberating</p>
+                    {ADVISORS.map(a => (
+                      <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors" />
+                    ))}
+                  </div>
+                )}
+                {phase === "review" && (
+                  <div>
+                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Consolidated peer review</p>
+                    <div style={{ padding: "14px 18px", background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: liveRev ? 10 : 0 }}>
+                        <i className="ti ti-analyze pulse" style={{ fontSize: 14, color: "var(--purple)" }} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>Council Analyst</span>
+                        <span className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>cross-examining all five</span>
+                      </div>
+                      {liveRev && (
+                        <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 90, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
+                          {liveRev}<span style={{ animation: "blink .7s step-end infinite", color: "var(--purple)" }}>▋</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {phase === "synthesis" && (
+                  <div>
+                    <p className="tag" style={{ color: "var(--amber)", marginBottom: 12 }}>Chairman synthesizing verdict</p>
+                    <div style={{ padding: 24, minHeight: 120, background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
+                      {liveVerdict
+                        ? <><Md text={liveVerdict} /><span style={{ animation: "blink .7s step-end infinite", color: "var(--amber)" }}>▋</span></>
+                        : <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <div className="spin" style={{ width: 14, height: 14, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%", flexShrink: 0 }} />
+                            <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>Deliberating…</span>
+                          </div>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Results ── */}
+            {phase === "done" && sec && (
+              <div className="fade-up">
+                {/* Question echo */}
+                <div style={{ padding: "16px 20px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8, display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <p className="tag" style={{ color: "var(--amber)", marginBottom: 8 }}>Session question</p>
+                    <p style={{ fontSize: 15, color: "var(--t2)", lineHeight: 1.65, fontStyle: "italic", margin: 0 }}>"{q}"</p>
+                  </div>
+                  <CopyBtn text={q} style={{ flexShrink: 0, marginTop: 2 }} />
+                </div>
+
+                <Divider label="Chairman's verdict" />
+
+                <VerdictSection label="Where the council agrees"  icon="ti-check"          accent="var(--green)"  tint="var(--green-tint)"  ring="var(--green-ring)"  text={sec.agrees} />
+                <VerdictSection label="Where the council clashes" icon="ti-arrows-exchange" accent="var(--red)"    tint="var(--red-tint)"    ring="var(--red-ring)"    text={sec.clashes} />
+                <VerdictSection label="Blind spots caught"        icon="ti-eye-off"         accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" text={sec.blind} />
+
+                {sec.rec && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <i className="ti ti-star" style={{ fontSize: 13, color: "var(--amber)" }} />
+                        <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>The recommendation</span>
+                      </div>
+                      <CopyBtn text={sec.rec} />
+                    </div>
+                    <div style={{ padding: "20px 22px", background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
+                      <Md text={sec.rec} />
+                    </div>
+                  </div>
+                )}
+
+                {sec.first && (
+                  <div style={{ marginBottom: 36 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <i className="ti ti-arrow-narrow-right" style={{ fontSize: 13, color: "var(--green)" }} />
+                        <span className="tag" style={{ color: "var(--green)", fontSize: 10 }}>The one thing to do first</span>
+                      </div>
+                      <CopyBtn text={sec.first} />
+                    </div>
+                    <div style={{ padding: "22px 24px", background: "var(--green-tint)", border: "1px solid var(--green-ring)", borderRadius: 8 }}>
+                      <p style={{ fontFamily: "var(--display)", fontSize: 28, letterSpacing: 2, color: "var(--green)", lineHeight: 1.3, margin: 0 }}>{sec.first}</p>
+                    </div>
+                  </div>
+                )}
+
+                {sec.raw && (
+                  <div style={{ padding: "20px 22px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+                    <Md text={sec.raw} />
+                  </div>
+                )}
+
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <button onClick={exportMd} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--t2)", background: "var(--bg3)", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
+                    <i className="ti ti-download" style={{ fontSize: 12 }} />Export markdown
+                  </button>
+                </div>
+
+                <Divider label="Full transcripts" />
+
+                <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisor responses</p>
+                <div style={{ marginBottom: 24 }}>
+                  {ADVISORS.map(a => (
+                    <Accordion key={a.id} label={a.name} sub={a.tagline} accent={a.accent} tint={a.tint} ring={a.ring} isOpen={!!open[a.id]} onToggle={() => tog(a.id)}>
+                      {finalTexts[a.id] || ""}
+                    </Accordion>
+                  ))}
+                </div>
+
+                {peerReview && (
+                  <Accordion label="Consolidated peer review" sub="cross-examination" accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" isOpen={!!open.rev} onToggle={() => tog("rev")}>
+                    {peerReview}
+                  </Accordion>
+                )}
+
+                <button onClick={() => { setPhase("idle"); setQ(""); setVerdict(""); }} style={{ width: "100%", padding: "13px 20px", marginTop: 20, fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "transparent", border: "1px solid var(--bd2)", color: "var(--t2)", borderRadius: 6, cursor: "pointer" }}>
+                  NEW SESSION
+                </button>
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    }
+
+    /* ── APP ROOT ─────────────────────────────────────────────── */
+
+    function App() {
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem("council-key") || "");
+      const clearKey = () => { localStorage.removeItem("council-key"); setApiKey(""); };
+      if (!apiKey) return <ApiKeySetup onSave={setApiKey} />;
+      return <Council apiKey={apiKey} onClearKey={clearKey} />;
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
