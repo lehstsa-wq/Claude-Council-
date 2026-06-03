@@ -236,37 +236,35 @@
     const FAST_MODEL = "claude-haiku-4-5-20251001";
 
     // Token ceilings per phase.
-    // advisor: 100-word target (~130 tokens); 400 is a 3× safety buffer.
-    // review:  100-word target (~130 tokens); 200 is a 1.5× buffer.
-    // chairman: Haiku gets 1000 (room for diagram); Sonnet/Opus get 800
-    //           (more expensive per token, so we keep verdicts tighter).
-    const TOKEN_BUDGETS = { advisor: 400, review: 200, chairmanHaiku: 1000, chairmanPremium: 800 };
+    // advisor: target ~130 tokens (100 words); 200 is a 1.5× buffer.
+    // review:  target ~130 tokens (100 words); 160 is a 1.2× buffer.
+    // chairman: Haiku gets 1000 (room for diagram); Sonnet/Opus get 800.
+    const TOKEN_BUDGETS = { advisor: 200, review: 160, chairmanHaiku: 1000, chairmanPremium: 800 };
 
-    // How many chars of each advisor response to include in the chairman's input.
-    // Sonnet/Opus are expensive — passing 100-char snippets (~25 tokens each)
-    // instead of full texts (~130 tokens each) cuts chairman input by ~65% with
-    // minimal quality loss (the peer review already captures the key contrasts).
-    // Haiku is cheap enough to receive the full advisor block.
+    // Chars of each advisor response forwarded to the peer reviewer and chairman.
+    // Haiku is cheap — pass full text. Sonnet/Opus are expensive — 180-char
+    // snippets (~25 tokens each) cut input cost ~65% with minimal quality loss.
     const ADVISOR_SNIPPET_CHARS = { [FAST_MODEL]: Infinity, default: 180 };
 
-    // Returns an estimated USD cost per first turn based on model selection.
-    // Chairman input uses compressed advisor snippets for non-Haiku models.
-    function estimateCostPerTurn(chairmanModel, fastAdvisorsOn) {
+    // Returns an estimated USD cost per first turn.
+    // Accounts for advisor count, optional peer review, and compressed inputs.
+    function estimateCostPerTurn(chairmanModel, fastAdvisorsOn, advisorCount = 5, peerReviewOn = true) {
       const RATES = {
         "claude-haiku-4-5-20251001": { in: 0.80,  out: 4.00  },
         "claude-sonnet-4-6":         { in: 3.00,  out: 15.00 },
         "claude-opus-4-7":           { in: 15.00, out: 75.00 },
       };
-      const isHaikuChairman = chairmanModel === FAST_MODEL;
-      const advisorRate     = fastAdvisorsOn ? RATES[FAST_MODEL] : (RATES[chairmanModel] || RATES[FAST_MODEL]);
-      const chairmanRate    = RATES[chairmanModel] || RATES[FAST_MODEL];
-      // Compressed input for non-Haiku: snippets (~25t each) + review + prompt ≈ 475 tokens
-      // Full input for Haiku: full advisor block (~650t) + review + prompt ≈ 1100 tokens
-      const chairmanInputTokens = isHaikuChairman ? 1100 : 475;
-      const chairmanOutputTokens = isHaikuChairman ? 600 : 450;
-      const phase1 = (5 * 180 * advisorRate.in + 5 * 130 * advisorRate.out) / 1e6;
-      const phase2 = (700 * advisorRate.in + 130 * advisorRate.out) / 1e6;  // tighter review
-      const phase3 = (chairmanInputTokens * chairmanRate.in + chairmanOutputTokens * chairmanRate.out) / 1e6;
+      const isHaikuChairman  = chairmanModel === FAST_MODEL;
+      const advisorRate      = fastAdvisorsOn ? RATES[FAST_MODEL] : (RATES[chairmanModel] || RATES[FAST_MODEL]);
+      const chairmanRate     = RATES[chairmanModel] || RATES[FAST_MODEL];
+      // Peer reviewer gets compressed input: snippets (~45t each) + instruction (~100t)
+      const reviewInputToks  = advisorCount * 45 + 100;
+      // Chairman gets compressed input for non-Haiku; full block for Haiku
+      const chairmanInToks   = isHaikuChairman ? (advisorCount * 130 + 350) : (advisorCount * 25 + 250);
+      const chairmanOutToks  = isHaikuChairman ? 600 : 450;
+      const phase1 = (advisorCount * 180 * advisorRate.in + advisorCount * 130 * advisorRate.out) / 1e6;
+      const phase2 = peerReviewOn ? (reviewInputToks * advisorRate.in + 130 * advisorRate.out) / 1e6 : 0;
+      const phase3 = (chairmanInToks * chairmanRate.in + chairmanOutToks * chairmanRate.out) / 1e6;
       return phase1 + phase2 + phase3;
     }
 
@@ -603,13 +601,11 @@
 
     /* ── SETTINGS PANEL ─────────────────────────────────────────────── */
 
-    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, onBudgetMode, onClearKey, onClose }) {
+    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, onBudgetMode, onClearKey, onClose }) {
       const synthesisLabel  = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "Haiku";
-      const estimatedCost   = estimateCostPerTurn(model, fastAdvisors);
-      const isBudgetMode    = model === FAST_MODEL && fastAdvisors;
-      // Sonnet/Opus minimum viable verdict (~450 tokens output) costs > 1¢ regardless
-      // of input optimizations. Only all-Haiku reliably lands under $0.01.
-      const canReachSubCent = model === FAST_MODEL;
+      const estimatedCost   = estimateCostPerTurn(model, fastAdvisors, advisorCount, peerReviewEnabled);
+      const isBudgetMode    = model === FAST_MODEL && fastAdvisors && advisorCount <= 3 && !peerReviewEnabled;
+      const canReachSubCent = model === FAST_MODEL || (advisorCount <= 2 && !peerReviewEnabled);
       const costColor       = estimatedCost < 0.01 ? "var(--green)" : estimatedCost < 0.02 ? "var(--amber)" : "var(--red)";
       const costLabel       = estimatedCost < 0.01 ? "< 1¢ per turn" : `~${(estimatedCost * 100).toFixed(1)}¢ per turn`;
 
@@ -643,13 +639,13 @@
               </div>
             )}
 
-            {/* Budget mode one-click preset: Haiku everywhere + fast advisors */}
+            {/* Budget mode preset: Haiku everywhere + 3 advisors + no review */}
             <button onClick={onBudgetMode}
               style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", marginBottom: 20, background: isBudgetMode ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${isBudgetMode ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .2s" }}>
               <i className="ti ti-currency-dollar" style={{ fontSize: 14, color: isBudgetMode ? "var(--green)" : "var(--t3)", flexShrink: 0 }} />
               <div style={{ flex: 1, textAlign: "left" }}>
                 <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>Budget mode</p>
-                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Haiku for all phases · &lt; 1¢ per turn</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Haiku · 3 advisors · no review · &lt; 0.5¢</p>
               </div>
               {isBudgetMode && <i className="ti ti-check" style={{ fontSize: 13, color: "var(--green)" }} />}
             </button>
@@ -681,8 +677,37 @@
               </div>
             </button>
             {fastAdvisors
-              ? <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 20 }}>Phases 1–2 on Haiku · caching compounds savings on long threads</p>
-              : <div style={{ marginBottom: 20 }} />}
+              ? <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 16 }}>Phases 1–2 on Haiku · caching compounds savings on long threads</p>
+              : <div style={{ marginBottom: 16 }} />}
+
+            {/* Advisor count: fewer advisors = proportionally cheaper phase 1 */}
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisor count</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 16, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6, overflow: "hidden" }}>
+              {[2, 3, 4, 5].map(n => (
+                <button key={n} onClick={() => onAdvisorCount(n)}
+                  style={{ flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 500, background: advisorCount === n ? "var(--amber-tint)" : "transparent", color: advisorCount === n ? "var(--amber)" : "var(--t2)", border: "none", borderRight: n < 5 ? "1px solid var(--bd)" : "none", cursor: "pointer", transition: "background .15s" }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p style={{ fontSize: 11, color: "var(--t3)", marginBottom: 16, lineHeight: 1.5 }}>
+              {advisorCount === 5 ? "Full depth · all 5 perspectives" : advisorCount === 4 ? "High depth · drops one advisor" : advisorCount === 3 ? "Balanced · 40% cheaper phase 1" : "Lean · 60% cheaper phase 1"}
+            </p>
+
+            {/* Peer review toggle: skipping phase 2 eliminates one API call entirely */}
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Peer review</p>
+            <button onClick={() => onPeerReview(!peerReviewEnabled)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: peerReviewEnabled ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${peerReviewEnabled ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .2s" }}>
+              <div style={{ textAlign: "left" }}>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>Cross-examination</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Blind review before synthesis</p>
+              </div>
+              <div style={{ width: 32, height: 18, borderRadius: 9, background: peerReviewEnabled ? "var(--green)" : "var(--bd2)", transition: "background .2s", position: "relative", flexShrink: 0 }}>
+                <div style={{ position: "absolute", top: 2, left: peerReviewEnabled ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "var(--t1)", transition: "left .2s" }} />
+              </div>
+            </button>
+            {!peerReviewEnabled && <p style={{ fontSize: 11, color: "var(--t3)", marginBottom: 16 }}>Skipped — saves one full API call</p>}
+            {peerReviewEnabled && <div style={{ marginBottom: 16 }} />}
 
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>API Key</p>
             <div style={{ padding: "10px 12px", marginBottom: 10, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6 }}>
@@ -698,8 +723,9 @@
 
     /* ── PHASE STEPPER ──────────────────────────────────────────────── */
 
-    function PhaseStepper({ phase }) {
-      const steps = [{ id: "advisors", label: "Advisors" }, { id: "review", label: "Peer review" }, { id: "synthesis", label: "Chairman" }];
+    function PhaseStepper({ phase, showReview = true }) {
+      const allSteps = [{ id: "advisors", label: "Advisors" }, { id: "review", label: "Peer review" }, { id: "synthesis", label: "Chairman" }];
+      const steps    = showReview ? allSteps : allSteps.filter(s => s.id !== "review");
       const activeIdx = steps.findIndex(s => s.id === phase);
       return (
         <div style={{ display: "flex", alignItems: "center", padding: "16px 20px", marginBottom: 20, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
@@ -961,10 +987,12 @@
       const [followUpInput,   setFollowUpInput]   = useState(""); // follow-up textarea
 
       // ── User preferences (localStorage-persisted) ────────────────────
-      const [model,            setModel]            = useState(() => localStorage.getItem("council-model") || MODELS[1].id);
-      const [fastAdvisors,     setFastAdvisors]     = useState(() => localStorage.getItem("council-fast") !== "false");
-      const [generateDiagrams, setGenerateDiagrams] = useState(false);
-      const [showSettings,     setShowSettings]     = useState(false);
+      const [model,              setModel]              = useState(() => localStorage.getItem("council-model") || MODELS[1].id);
+      const [fastAdvisors,       setFastAdvisors]       = useState(() => localStorage.getItem("council-fast") !== "false");
+      const [advisorCount,       setAdvisorCount]       = useState(() => parseInt(localStorage.getItem("council-advisors") || "5"));
+      const [peerReviewEnabled,  setPeerReviewEnabled]  = useState(() => localStorage.getItem("council-review") !== "false");
+      const [generateDiagrams,   setGenerateDiagrams]   = useState(false);
+      const [showSettings,       setShowSettings]       = useState(false);
 
       // ── Sidebar state ────────────────────────────────────────────────
       const [sidebarOpen,     setSidebarOpen]     = useState(true);
@@ -981,8 +1009,10 @@
       const togglePanel = useCallback(k => setOpenPanels(p => ({ ...p, [k]: !p[k] })), []);
       const modelLabel  = m => MODELS.find(x => x.id === m)?.label ?? m;
 
-      useEffect(() => { localStorage.setItem("council-model", model); }, [model]);
-      useEffect(() => { localStorage.setItem("council-fast", fastAdvisors); }, [fastAdvisors]);
+      useEffect(() => { localStorage.setItem("council-model",    model); }, [model]);
+      useEffect(() => { localStorage.setItem("council-fast",     fastAdvisors); }, [fastAdvisors]);
+      useEffect(() => { localStorage.setItem("council-advisors", advisorCount); }, [advisorCount]);
+      useEffect(() => { localStorage.setItem("council-review",   peerReviewEnabled); }, [peerReviewEnabled]);
 
       // ── Load session list from IndexedDB on mount ────────────────────
       const refreshSessionList = useCallback(async () => {
@@ -1034,41 +1064,50 @@
           ? `Prior conversation context is provided above. Continue the discussion.\n\nNew question: ${newPrompt}\n\nRespond from your perspective.`
           : `Question for the council:\n\n---\n${newPrompt}\n---\n\nBe direct. Lean fully into your angle.`;
 
-        /* Phase 1: Five advisors in parallel ──────────────────────────
-           TOKEN_BUDGETS.advisor (400) is the ceiling — advisors are asked
-           for ~100 words (~130 tokens); 400 gives a safe 3× buffer while
-           cutting the old 800-token max in half.                          */
+        /* Phase 1: Active advisors in parallel ────────────────────────
+           Sliced to `advisorCount` so users can trade depth for cost.
+           TOKEN_BUDGETS.advisor (200) gives a 1.5× buffer over the 100-word
+           (~130-token) target — half the previous ceiling.                */
         setPhase("advisors");
         setLive({}); setAdvisorDone({});
         const collectedTexts = {};
+        const activeAdvisors = ADVISORS.slice(0, advisorCount);
 
-        await Promise.all(ADVISORS.map(({ id, system }) =>
+        await Promise.all(activeAdvisors.map(({ id, system }) =>
           collect(
             system, advisorQuestion, apiKey, advisorModel,
             full => { collectedTexts[id] = full; setLive(p => ({ ...p, [id]: full })); },
-            priorContext, // cached prefix — free on warm cache
+            priorContext,
             TOKEN_BUDGETS.advisor
           ).then(() => setAdvisorDone(p => ({ ...p, [id]: true })))
         ));
 
-        /* Phase 2: Consolidated peer review ───────────────────────────
-           The anonymous advisor block is appended to the prior context so
-           the cache covers the entire growing history in one shot.        */
-        setPhase("review");
-        setLiveRev("");
-        const shuffledAdvisors = [...ADVISORS].sort(() => Math.random() - 0.5);
-        const letterMap        = Object.fromEntries(shuffledAdvisors.map((a, i) => [String.fromCharCode(65 + i), a.id]));
-        const anonymousBlock   = Object.entries(letterMap).map(([l, id]) => `**Advisor ${l}:**\n${collectedTexts[id]}`).join("\n\n");
-        const reviewCachePrefix = priorContext ? `${priorContext}\n\n${anonymousBlock}` : anonymousBlock;
+        /* Phase 2: Consolidated peer review (optional) ────────────────
+           Skipped entirely when peerReviewEnabled is false — eliminates one
+           full API call. When running, uses the same snippet compression as
+           the chairman so the anonymous block doesn't balloon with full texts. */
+        let peerReviewText = "";
+        if (peerReviewEnabled) {
+          setPhase("review");
+          setLiveRev("");
+          const shuffledAdvisors  = [...activeAdvisors].sort(() => Math.random() - 0.5);
+          const letterMap         = Object.fromEntries(shuffledAdvisors.map((a, i) => [String.fromCharCode(65 + i), a.id]));
+          const snippetCharsReview = ADVISOR_SNIPPET_CHARS[advisorModel] ?? ADVISOR_SNIPPET_CHARS.default;
+          const anonymousBlock    = Object.entries(letterMap).map(([l, id]) => {
+            const txt = collectedTexts[id] || "";
+            return `**Advisor ${l}:** ${txt.length > snippetCharsReview ? txt.slice(0, snippetCharsReview) + "…" : txt}`;
+          }).join("\n");
+          const reviewCachePrefix = priorContext ? `${priorContext}\n\n${anonymousBlock}` : anonymousBlock;
 
-        const peerReviewText = await collect(
-          "You are an impartial Council Analyst. Evaluate advisor responses precisely. No preamble.",
-          `Question: "${newPrompt}"\n\n1. Strongest response (letter + reason)\n2. Biggest blind spot\n3. Critical insight ALL missed\n4. Sharpest disagreement for Chairman\n\n200 words max.`,
-          apiKey, advisorModel,
-          full => setLiveRev(full),
-          reviewCachePrefix,
-          TOKEN_BUDGETS.review
-        );
+          peerReviewText = await collect(
+            "You are an impartial Council Analyst. Evaluate advisor responses precisely. No preamble.",
+            `Question: "${newPrompt}"\n\n1. Strongest response (letter + reason)\n2. Biggest blind spot\n3. Critical insight ALL missed\n4. Sharpest disagreement for Chairman\n\n100 words max.`,
+            apiKey, advisorModel,
+            full => setLiveRev(full),
+            reviewCachePrefix,
+            TOKEN_BUDGETS.review
+          );
+        }
 
         /* Phase 3: Chairman synthesis ─────────────────────────────────
            For Haiku the full advisor block is cheap so we pass it all.
@@ -1079,7 +1118,7 @@
         setPhase("synthesis");
         setLiveVerdict("");
         const snippetChars   = ADVISOR_SNIPPET_CHARS[model] ?? ADVISOR_SNIPPET_CHARS.default;
-        const chairmanAdvisorBlock = ADVISORS.map(a => {
+        const chairmanAdvisorBlock = activeAdvisors.map(a => {
           const text = collectedTexts[a.id] || "";
           const snippet = text.length > snippetChars ? text.slice(0, snippetChars) + "…" : text;
           return `**${a.name}:** ${snippet}`;
@@ -1106,7 +1145,7 @@
         const { verdictText, diagramCode } = splitVerdictAndDiagram(rawVerdict);
 
         return { prompt: newPrompt, advisorTexts: collectedTexts, peerReview: peerReviewText, verdict: verdictText, diagramCode };
-      }, [apiKey, model, advisorModel, generateDiagrams]);
+      }, [apiKey, model, advisorModel, advisorCount, peerReviewEnabled, generateDiagrams]);
 
       // ── Unified turn runner ──────────────────────────────────────────
       // Handles both the first turn (creates a new DB session) and follow-up
@@ -1181,9 +1220,12 @@
             <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 0 80px" }}>
 
               {showSettings && (
-                <SettingsPanel apiKey={apiKey} model={model} onModel={setModel}
+                <SettingsPanel
+                  apiKey={apiKey} model={model} onModel={setModel}
                   fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
-                  onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); }}
+                  advisorCount={advisorCount} onAdvisorCount={setAdvisorCount}
+                  peerReviewEnabled={peerReviewEnabled} onPeerReview={setPeerReviewEnabled}
+                  onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); setAdvisorCount(3); setPeerReviewEnabled(false); }}
                   onClearKey={() => { onClearKey(); setShowSettings(false); }}
                   onClose={() => setShowSettings(false)} />
               )}
@@ -1213,7 +1255,7 @@
                 <button onClick={() => setShowSettings(true)}
                   style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer", flexShrink: 0 }}>
                   <i className="ti ti-settings" style={{ fontSize: 14 }} />
-                  {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)}
+                  {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)} · {advisorCount}adv
                 </button>
               </div>
 
@@ -1244,10 +1286,10 @@
                       </div>
                     )}
 
-                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>The five advisors</p>
+                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>The {advisorCount === 5 ? "five" : advisorCount === 4 ? "four" : advisorCount === 3 ? "three" : advisorCount === 2 ? "two" : ""} advisors</p>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      {ADVISORS.map((a, i) => (
-                        <div key={a.id} style={{ gridColumn: i === 4 ? "span 2" : undefined, padding: "12px 14px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
+                      {ADVISORS.slice(0, advisorCount).map((a, i) => (
+                        <div key={a.id} style={{ gridColumn: (advisorCount % 2 !== 0 && i === advisorCount - 1) ? "span 2" : undefined, padding: "12px 14px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                             <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
                             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
@@ -1278,7 +1320,7 @@
                       </div>
                     )}
 
-                    <PhaseStepper phase={phase} />
+                    <PhaseStepper phase={phase} showReview={peerReviewEnabled} />
 
                     {phase === "advisors" && (
                       <div>
