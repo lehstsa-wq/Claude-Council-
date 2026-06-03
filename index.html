@@ -235,26 +235,38 @@
     // Only the Chairman synthesis uses the user's selected quality model.
     const FAST_MODEL = "claude-haiku-4-5-20251001";
 
-    // Token ceilings per phase. Advisors are instructed to respond in 100 words
-    // (~130 tokens); 400 is a generous safety ceiling. Peer review targets 200
-    // words (~260 tokens); 400 is safe. Chairman needs room for five sections
-    // plus an optional diagram; 1000 covers ~650 tokens of typical output.
-    const TOKEN_BUDGETS = { advisor: 400, review: 400, chairman: 1000 };
+    // Token ceilings per phase.
+    // advisor: 100-word target (~130 tokens); 400 is a 3× safety buffer.
+    // review:  100-word target (~130 tokens); 200 is a 1.5× buffer.
+    // chairman: Haiku gets 1000 (room for diagram); Sonnet/Opus get 800
+    //           (more expensive per token, so we keep verdicts tighter).
+    const TOKEN_BUDGETS = { advisor: 400, review: 200, chairmanHaiku: 1000, chairmanPremium: 800 };
+
+    // How many chars of each advisor response to include in the chairman's input.
+    // Sonnet/Opus are expensive — passing 100-char snippets (~25 tokens each)
+    // instead of full texts (~130 tokens each) cuts chairman input by ~65% with
+    // minimal quality loss (the peer review already captures the key contrasts).
+    // Haiku is cheap enough to receive the full advisor block.
+    const ADVISOR_SNIPPET_CHARS = { [FAST_MODEL]: Infinity, default: 180 };
 
     // Returns an estimated USD cost per first turn based on model selection.
-    // Uses conservative token estimates: 5 advisors × 180in/130out, peer review
-    // 900in/200out, chairman 1100in/600out (including diagram headroom).
+    // Chairman input uses compressed advisor snippets for non-Haiku models.
     function estimateCostPerTurn(chairmanModel, fastAdvisorsOn) {
       const RATES = {
         "claude-haiku-4-5-20251001": { in: 0.80,  out: 4.00  },
         "claude-sonnet-4-6":         { in: 3.00,  out: 15.00 },
         "claude-opus-4-7":           { in: 15.00, out: 75.00 },
       };
-      const advisorRate  = fastAdvisorsOn ? RATES[FAST_MODEL] : (RATES[chairmanModel] || RATES[FAST_MODEL]);
-      const chairmanRate = RATES[chairmanModel] || RATES[FAST_MODEL];
-      const phase1 = (5 * 180 * advisorRate.in  + 5 * 130 * advisorRate.out)  / 1e6;
-      const phase2 = (900  * advisorRate.in  + 200 * advisorRate.out)          / 1e6;
-      const phase3 = (1100 * chairmanRate.in + 600 * chairmanRate.out)         / 1e6;
+      const isHaikuChairman = chairmanModel === FAST_MODEL;
+      const advisorRate     = fastAdvisorsOn ? RATES[FAST_MODEL] : (RATES[chairmanModel] || RATES[FAST_MODEL]);
+      const chairmanRate    = RATES[chairmanModel] || RATES[FAST_MODEL];
+      // Compressed input for non-Haiku: snippets (~25t each) + review + prompt ≈ 475 tokens
+      // Full input for Haiku: full advisor block (~650t) + review + prompt ≈ 1100 tokens
+      const chairmanInputTokens = isHaikuChairman ? 1100 : 475;
+      const chairmanOutputTokens = isHaikuChairman ? 600 : 450;
+      const phase1 = (5 * 180 * advisorRate.in + 5 * 130 * advisorRate.out) / 1e6;
+      const phase2 = (700 * advisorRate.in + 130 * advisorRate.out) / 1e6;  // tighter review
+      const phase3 = (chairmanInputTokens * chairmanRate.in + chairmanOutputTokens * chairmanRate.out) / 1e6;
       return phase1 + phase2 + phase3;
     }
 
@@ -595,6 +607,9 @@
       const synthesisLabel  = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "Haiku";
       const estimatedCost   = estimateCostPerTurn(model, fastAdvisors);
       const isBudgetMode    = model === FAST_MODEL && fastAdvisors;
+      // Sonnet/Opus minimum viable verdict (~450 tokens output) costs > 1¢ regardless
+      // of input optimizations. Only all-Haiku reliably lands under $0.01.
+      const canReachSubCent = model === FAST_MODEL;
       const costColor       = estimatedCost < 0.01 ? "var(--green)" : estimatedCost < 0.02 ? "var(--amber)" : "var(--red)";
       const costLabel       = estimatedCost < 0.01 ? "< 1¢ per turn" : `~${(estimatedCost * 100).toFixed(1)}¢ per turn`;
 
@@ -610,13 +625,23 @@
             </div>
 
             {/* Live cost estimate — updates as the user changes model/toggles */}
-            <div style={{ padding: "12px 14px", marginBottom: 20, background: "var(--bg3)", border: `1px solid ${costColor}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ padding: "12px 14px", marginBottom: !canReachSubCent && !isBudgetMode ? 8 : 20, background: "var(--bg3)", border: `1px solid ${costColor}`, borderRadius: canReachSubCent ? 8 : "8px 8px 0 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <p style={{ fontSize: 12, fontWeight: 500, color: "var(--t1)", margin: "0 0 2px" }}>Estimated cost</p>
                 <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>advisors + review + verdict</p>
               </div>
               <span style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 600, color: costColor }}>{costLabel}</span>
             </div>
+            {/* Sonnet/Opus output pricing ($15–75/MTok) makes < 1¢ mathematically
+                impossible for a full 5-section verdict. Only all-Haiku clears the bar. */}
+            {!canReachSubCent && (
+              <div style={{ padding: "8px 14px", marginBottom: 20, background: "var(--bg4)", border: `1px solid ${costColor}`, borderTop: "none", borderRadius: "0 0 8px 8px" }}>
+                <p style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.5 }}>
+                  Sonnet/Opus output costs ${model.includes("opus") ? "75" : "15"}/MTok — a full verdict is ~450 tokens minimum.
+                  {" "}<span style={{ color: "var(--amber)" }}>Budget mode (Haiku) is the only path to &lt; 1¢.</span>
+                </p>
+              </div>
+            )}
 
             {/* Budget mode one-click preset: Haiku everywhere + fast advisors */}
             <button onClick={onBudgetMode}
@@ -1046,12 +1071,21 @@
         );
 
         /* Phase 3: Chairman synthesis ─────────────────────────────────
-           The full accumulated transcript is cached. The optional diagram
-           instruction is appended only when the user's toggle is active.  */
+           For Haiku the full advisor block is cheap so we pass it all.
+           For Sonnet/Opus the advisor block is expensive — we compress
+           each advisor to a 180-char snippet (~25 tokens). The peer review
+           already captures the key contrasts, so the chairman still has
+           enough signal without paying for the full transcripts.           */
         setPhase("synthesis");
         setLiveVerdict("");
-        const namedBlock    = ADVISORS.map(a => `**${a.name}:**\n${collectedTexts[a.id]}`).join("\n\n");
-        const fullTranscript = `${priorContext ? priorContext + "\n\n---\n\n" : ""}CURRENT QUESTION:\n${newPrompt}\n\nADVISOR RESPONSES:\n${namedBlock}\n\nPEER REVIEW:\n${peerReviewText}`;
+        const snippetChars   = ADVISOR_SNIPPET_CHARS[model] ?? ADVISOR_SNIPPET_CHARS.default;
+        const chairmanAdvisorBlock = ADVISORS.map(a => {
+          const text = collectedTexts[a.id] || "";
+          const snippet = text.length > snippetChars ? text.slice(0, snippetChars) + "…" : text;
+          return `**${a.name}:** ${snippet}`;
+        }).join("\n");
+        const chairmanTokenBudget = model === FAST_MODEL ? TOKEN_BUDGETS.chairmanHaiku : TOKEN_BUDGETS.chairmanPremium;
+        const fullTranscript = `${priorContext ? priorContext + "\n\n---\n\n" : ""}CURRENT QUESTION:\n${newPrompt}\n\nADVISOR RESPONSES:\n${chairmanAdvisorBlock}\n\nPEER REVIEW:\n${peerReviewText}`;
 
         // When diagrams are enabled the instruction is mandatory — the model MUST
         // produce a diagram. The "Only include if…" hedge is intentionally absent
@@ -1066,7 +1100,7 @@
           CHAIRMAN_SYSTEM, synthesisPrompt, apiKey, model,
           full => setLiveVerdict(full),
           fullTranscript, // large cached block — grows cheaply with thread length
-          TOKEN_BUDGETS.chairman
+          chairmanTokenBudget
         );
 
         const { verdictText, diagramCode } = splitVerdictAndDiagram(rawVerdict);
