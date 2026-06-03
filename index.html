@@ -247,8 +247,9 @@
     const ADVISOR_SNIPPET_CHARS = { [FAST_MODEL]: Infinity, default: 180 };
 
     // Returns an estimated USD cost per first turn.
-    // Accounts for advisor count, optional peer review, and compressed inputs.
-    function estimateCostPerTurn(chairmanModel, fastAdvisorsOn, advisorCount = 5, peerReviewOn = true) {
+    // Accounts for all five user-controlled knobs simultaneously so the settings
+    // panel live badge reflects every combination accurately.
+    function estimateCostPerTurn(chairmanModel, fastAdvisorsOn, advisorCount = 5, peerReviewOn = true, diagramOn = false) {
       const RATES = {
         "claude-haiku-4-5-20251001": { in: 0.80,  out: 4.00  },
         "claude-sonnet-4-6":         { in: 3.00,  out: 15.00 },
@@ -261,7 +262,8 @@
       const reviewInputToks  = advisorCount * 45 + 100;
       // Chairman gets compressed input for non-Haiku; full block for Haiku
       const chairmanInToks   = isHaikuChairman ? (advisorCount * 130 + 350) : (advisorCount * 25 + 250);
-      const chairmanOutToks  = isHaikuChairman ? 600 : 450;
+      // Diagrams add ~150 tokens to chairman output (Mermaid block)
+      const chairmanOutToks  = (isHaikuChairman ? 600 : 450) + (diagramOn ? 150 : 0);
       const phase1 = (advisorCount * 180 * advisorRate.in + advisorCount * 130 * advisorRate.out) / 1e6;
       const phase2 = peerReviewOn ? (reviewInputToks * advisorRate.in + 130 * advisorRate.out) / 1e6 : 0;
       const phase3 = (chairmanInToks * chairmanRate.in + chairmanOutToks * chairmanRate.out) / 1e6;
@@ -601,13 +603,14 @@
 
     /* ── SETTINGS PANEL ─────────────────────────────────────────────── */
 
-    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, onBudgetMode, onClearKey, onClose }) {
+    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, generateDiagrams, onGenerateDiagrams, onBudgetMode, onClearKey, onClose }) {
       const synthesisLabel  = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "Haiku";
-      const estimatedCost   = estimateCostPerTurn(model, fastAdvisors, advisorCount, peerReviewEnabled);
+      const estimatedCost   = estimateCostPerTurn(model, fastAdvisors, advisorCount, peerReviewEnabled, generateDiagrams);
       const isBudgetMode    = model === FAST_MODEL && fastAdvisors && advisorCount <= 3 && !peerReviewEnabled;
-      const canReachSubCent = model === FAST_MODEL || (advisorCount <= 2 && !peerReviewEnabled);
-      const costColor       = estimatedCost < 0.01 ? "var(--green)" : estimatedCost < 0.02 ? "var(--amber)" : "var(--red)";
-      const costLabel       = estimatedCost < 0.01 ? "< 1¢ per turn" : `~${(estimatedCost * 100).toFixed(1)}¢ per turn`;
+      // Derived from the live cost — no static model check needed
+      const isUnderPenny    = estimatedCost < 0.01;
+      const costColor       = isUnderPenny ? "var(--green)" : estimatedCost < 0.02 ? "var(--amber)" : "var(--red)";
+      const costLabel       = isUnderPenny ? `< 1¢ per turn` : `~${(estimatedCost * 100).toFixed(2)}¢ per turn`;
 
       return (
         <>
@@ -620,21 +623,25 @@
               </button>
             </div>
 
-            {/* Live cost estimate — updates as the user changes model/toggles */}
-            <div style={{ padding: "12px 14px", marginBottom: !canReachSubCent && !isBudgetMode ? 8 : 20, background: "var(--bg3)", border: `1px solid ${costColor}`, borderRadius: canReachSubCent ? 8 : "8px 8px 0 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            {/* Live cost badge — reacts to every knob change in real-time */}
+            <div style={{ padding: "12px 14px", marginBottom: !isUnderPenny ? 0 : 20, background: "var(--bg3)", border: `1px solid ${costColor}`, borderRadius: isUnderPenny ? 8 : "8px 8px 0 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <p style={{ fontSize: 12, fontWeight: 500, color: "var(--t1)", margin: "0 0 2px" }}>Estimated cost</p>
-                <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>advisors + review + verdict</p>
+                <p style={{ fontSize: 12, fontWeight: 500, color: "var(--t1)", margin: "0 0 2px" }}>Estimated cost per turn</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>advisors · review · verdict{generateDiagrams ? " · diagram" : ""}</p>
               </div>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 600, color: costColor }}>{costLabel}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 14, fontWeight: 700, color: costColor }}>{costLabel}</span>
             </div>
-            {/* Sonnet/Opus output pricing ($15–75/MTok) makes < 1¢ mathematically
-                impossible for a full 5-section verdict. Only all-Haiku clears the bar. */}
-            {!canReachSubCent && (
+            {/* When over 1¢, show which knobs to pull to cross the threshold */}
+            {!isUnderPenny && (
               <div style={{ padding: "8px 14px", marginBottom: 20, background: "var(--bg4)", border: `1px solid ${costColor}`, borderTop: "none", borderRadius: "0 0 8px 8px" }}>
-                <p style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.5 }}>
-                  Sonnet/Opus output costs ${model.includes("opus") ? "75" : "15"}/MTok — a full verdict is ~450 tokens minimum.
-                  {" "}<span style={{ color: "var(--amber)" }}>Budget mode (Haiku) is the only path to &lt; 1¢.</span>
+                <p style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.6 }}>
+                  Reduce: {[
+                    model !== FAST_MODEL && "↓ switch to Haiku",
+                    !fastAdvisors && "↓ enable fast advisors",
+                    advisorCount > 3 && `↓ fewer advisors (now ${advisorCount})`,
+                    peerReviewEnabled && "↓ disable peer review",
+                    generateDiagrams && "↓ disable diagrams",
+                  ].filter(Boolean).join(" · ") || "already optimized"}
                 </p>
               </div>
             )}
@@ -708,6 +715,21 @@
             </button>
             {!peerReviewEnabled && <p style={{ fontSize: 11, color: "var(--t3)", marginBottom: 16 }}>Skipped — saves one full API call</p>}
             {peerReviewEnabled && <div style={{ marginBottom: 16 }} />}
+
+            {/* Diagram generation: adds ~150 chairman output tokens — reflected in the cost badge */}
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Output</p>
+            <button onClick={() => onGenerateDiagrams(!generateDiagrams)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: generateDiagrams ? "var(--blue-tint)" : "var(--bg3)", border: `1px solid ${generateDiagrams ? "var(--blue-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .2s" }}>
+              <div style={{ textAlign: "left" }}>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>Supporting diagrams</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Mermaid.js appended by Chairman</p>
+              </div>
+              <div style={{ width: 32, height: 18, borderRadius: 9, background: generateDiagrams ? "var(--blue)" : "var(--bd2)", transition: "background .2s", position: "relative", flexShrink: 0 }}>
+                <div style={{ position: "absolute", top: 2, left: generateDiagrams ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "var(--t1)", transition: "left .2s" }} />
+              </div>
+            </button>
+            {generateDiagrams && <p style={{ fontSize: 11, color: "var(--blue)", marginBottom: 16 }}>+~150 chairman output tokens · reflected in estimate above</p>}
+            {!generateDiagrams && <div style={{ marginBottom: 16 }} />}
 
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>API Key</p>
             <div style={{ padding: "10px 12px", marginBottom: 10, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6 }}>
@@ -1225,7 +1247,8 @@
                   fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
                   advisorCount={advisorCount} onAdvisorCount={setAdvisorCount}
                   peerReviewEnabled={peerReviewEnabled} onPeerReview={setPeerReviewEnabled}
-                  onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); setAdvisorCount(3); setPeerReviewEnabled(false); }}
+                  generateDiagrams={generateDiagrams} onGenerateDiagrams={setGenerateDiagrams}
+                  onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); setAdvisorCount(3); setPeerReviewEnabled(false); setGenerateDiagrams(false); }}
                   onClearKey={() => { onClearKey(); setShowSettings(false); }}
                   onClose={() => setShowSettings(false)} />
               )}
