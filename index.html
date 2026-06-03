@@ -235,6 +235,29 @@
     // Only the Chairman synthesis uses the user's selected quality model.
     const FAST_MODEL = "claude-haiku-4-5-20251001";
 
+    // Token ceilings per phase. Advisors are instructed to respond in 100 words
+    // (~130 tokens); 400 is a generous safety ceiling. Peer review targets 200
+    // words (~260 tokens); 400 is safe. Chairman needs room for five sections
+    // plus an optional diagram; 1000 covers ~650 tokens of typical output.
+    const TOKEN_BUDGETS = { advisor: 400, review: 400, chairman: 1000 };
+
+    // Returns an estimated USD cost per first turn based on model selection.
+    // Uses conservative token estimates: 5 advisors × 180in/130out, peer review
+    // 900in/200out, chairman 1100in/600out (including diagram headroom).
+    function estimateCostPerTurn(chairmanModel, fastAdvisorsOn) {
+      const RATES = {
+        "claude-haiku-4-5-20251001": { in: 0.80,  out: 4.00  },
+        "claude-sonnet-4-6":         { in: 3.00,  out: 15.00 },
+        "claude-opus-4-7":           { in: 15.00, out: 75.00 },
+      };
+      const advisorRate  = fastAdvisorsOn ? RATES[FAST_MODEL] : (RATES[chairmanModel] || RATES[FAST_MODEL]);
+      const chairmanRate = RATES[chairmanModel] || RATES[FAST_MODEL];
+      const phase1 = (5 * 180 * advisorRate.in  + 5 * 130 * advisorRate.out)  / 1e6;
+      const phase2 = (900  * advisorRate.in  + 200 * advisorRate.out)          / 1e6;
+      const phase3 = (1100 * chairmanRate.in + 600 * chairmanRate.out)         / 1e6;
+      return phase1 + phase2 + phase3;
+    }
+
     const ADVISORS = [
       {
         id: "contrarian",      name: "The Contrarian",    accent: "var(--red)",
@@ -568,20 +591,46 @@
 
     /* ── SETTINGS PANEL ─────────────────────────────────────────────── */
 
-    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, onClearKey, onClose }) {
-      const synthesisLabel = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "Haiku";
+    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, onBudgetMode, onClearKey, onClose }) {
+      const synthesisLabel  = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "Haiku";
+      const estimatedCost   = estimateCostPerTurn(model, fastAdvisors);
+      const isBudgetMode    = model === FAST_MODEL && fastAdvisors;
+      const costColor       = estimatedCost < 0.01 ? "var(--green)" : estimatedCost < 0.02 ? "var(--amber)" : "var(--red)";
+      const costLabel       = estimatedCost < 0.01 ? "< 1¢ per turn" : `~${(estimatedCost * 100).toFixed(1)}¢ per turn`;
+
       return (
         <>
           <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 90, background: "oklch(0% 0 0 / 0.55)" }} />
           <div className="fade-up" style={{ position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 100, width: 300, background: "var(--bg2)", border: "1px solid var(--bd)", borderRight: "none", padding: "24px 20px", overflowY: "auto" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <span className="tag" style={{ color: "var(--t3)" }}>Settings</span>
               <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", lineHeight: 1, padding: 4 }}>
                 <i className="ti ti-x" style={{ fontSize: 16 }} />
               </button>
             </div>
+
+            {/* Live cost estimate — updates as the user changes model/toggles */}
+            <div style={{ padding: "12px 14px", marginBottom: 20, background: "var(--bg3)", border: `1px solid ${costColor}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 500, color: "var(--t1)", margin: "0 0 2px" }}>Estimated cost</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>advisors + review + verdict</p>
+              </div>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 600, color: costColor }}>{costLabel}</span>
+            </div>
+
+            {/* Budget mode one-click preset: Haiku everywhere + fast advisors */}
+            <button onClick={onBudgetMode}
+              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", marginBottom: 20, background: isBudgetMode ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${isBudgetMode ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .2s" }}>
+              <i className="ti ti-currency-dollar" style={{ fontSize: 14, color: isBudgetMode ? "var(--green)" : "var(--t3)", flexShrink: 0 }} />
+              <div style={{ flex: 1, textAlign: "left" }}>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>Budget mode</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Haiku for all phases · &lt; 1¢ per turn</p>
+              </div>
+              {isBudgetMode && <i className="ti ti-check" style={{ fontSize: 13, color: "var(--green)" }} />}
+            </button>
+
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Chairman model</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 28 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
               {MODELS.map(m => (
                 <button key={m.id} onClick={() => onModel(m.id)}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", textAlign: "left", background: model === m.id ? "var(--amber-tint)" : "var(--bg3)", border: `1px solid ${model === m.id ? "var(--amber-ring)" : "var(--bd)"}`, borderRadius: 6, transition: "all .15s" }}>
@@ -594,7 +643,8 @@
                 </button>
               ))}
             </div>
-            <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Cost optimization</p>
+
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Advisor routing</p>
             <button onClick={() => onFast(!fastAdvisors)}
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: fastAdvisors ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${fastAdvisors ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .2s" }}>
               <div style={{ textAlign: "left" }}>
@@ -606,8 +656,9 @@
               </div>
             </button>
             {fastAdvisors
-              ? <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 28 }}>~73% cheaper · context caching grows savings further on long threads</p>
-              : <div style={{ marginBottom: 28 }} />}
+              ? <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 20 }}>Phases 1–2 on Haiku · caching compounds savings on long threads</p>
+              : <div style={{ marginBottom: 20 }} />}
+
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>API Key</p>
             <div style={{ padding: "10px 12px", marginBottom: 10, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6 }}>
               <p style={{ fontSize: 12, fontFamily: "var(--mono)", color: "var(--t3)", wordBreak: "break-all" }}>{apiKey.slice(0, 14)}{"•".repeat(18)}</p>
@@ -959,9 +1010,9 @@
           : `Question for the council:\n\n---\n${newPrompt}\n---\n\nBe direct. Lean fully into your angle.`;
 
         /* Phase 1: Five advisors in parallel ──────────────────────────
-           max_tokens:800 keeps each advisor tight and cost-efficient.
-           priorContext is the cached prefix so repeat calls on long threads
-           don't re-encode the same history tokens.                        */
+           TOKEN_BUDGETS.advisor (400) is the ceiling — advisors are asked
+           for ~100 words (~130 tokens); 400 gives a safe 3× buffer while
+           cutting the old 800-token max in half.                          */
         setPhase("advisors");
         setLive({}); setAdvisorDone({});
         const collectedTexts = {};
@@ -971,7 +1022,7 @@
             system, advisorQuestion, apiKey, advisorModel,
             full => { collectedTexts[id] = full; setLive(p => ({ ...p, [id]: full })); },
             priorContext, // cached prefix — free on warm cache
-            800
+            TOKEN_BUDGETS.advisor
           ).then(() => setAdvisorDone(p => ({ ...p, [id]: true })))
         ));
 
@@ -991,7 +1042,7 @@
           apiKey, advisorModel,
           full => setLiveRev(full),
           reviewCachePrefix,
-          800
+          TOKEN_BUDGETS.review
         );
 
         /* Phase 3: Chairman synthesis ─────────────────────────────────
@@ -1015,7 +1066,7 @@
           CHAIRMAN_SYSTEM, synthesisPrompt, apiKey, model,
           full => setLiveVerdict(full),
           fullTranscript, // large cached block — grows cheaply with thread length
-          1500
+          TOKEN_BUDGETS.chairman
         );
 
         const { verdictText, diagramCode } = splitVerdictAndDiagram(rawVerdict);
@@ -1098,6 +1149,7 @@
               {showSettings && (
                 <SettingsPanel apiKey={apiKey} model={model} onModel={setModel}
                   fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
+                  onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); }}
                   onClearKey={() => { onClearKey(); setShowSettings(false); }}
                   onClose={() => setShowSettings(false)} />
               )}
