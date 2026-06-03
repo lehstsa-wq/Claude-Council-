@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Council</title>
+  <title>Sai's Council</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -567,11 +567,14 @@
           {/* Header */}
           <div style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 36 }}>
             <div>
-              <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Intelligence briefing system</p>
+              <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Sai's Council</p>
               <h1 style={{ fontFamily: "var(--display)", fontSize: 60, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 8 }}>THE COUNCIL</h1>
               <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, maxWidth: "50ch" }}>
                 Five independent advisors. Anonymous peer review. One verdict.<br />
                 Each advisor runs in its own context — no perspective bleed.
+              </p>
+              <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 8 }}>
+                Derived from <a href="https://karpathy.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--t3)", textDecoration: "underline", textUnderlineOffset: 3 }}>Andrej Karpathy</a>'s LLM Council concept
               </p>
             </div>
             <button onClick={() => setShowSettings(true)} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer" }}>
