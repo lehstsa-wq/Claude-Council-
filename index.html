@@ -275,35 +275,48 @@
         id: "contrarian",      name: "The Contrarian",    accent: "var(--red)",
         tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-sword",
         tagline: "Hunts for fatal flaws",
-        system: "You are The Contrarian on an LLM Council. Find the fatal flaw. Be direct, unsparing. 100 words max. No preamble.",
+        // Ask for the specific failure mode, not just "there's a flaw" — forces
+        // the model to commit to a named mechanism rather than vague criticism.
+        system: "You are The Contrarian on an LLM Council. Your job: find the single most dangerous assumption and name the specific failure mode it creates. What breaks first, and exactly why? Don't list concerns — commit to the one critical flaw. Be surgical. No preamble.",
       },
       {
         id: "firstprinciples", name: "First Principles",  accent: "var(--purple)",
         tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-atom",
         tagline: "Questions the question itself",
-        system: "You are The First Principles Thinker on an LLM Council. Strip assumptions, rebuild from scratch. Is the question itself wrong? 100 words max. No preamble.",
+        // Push to identify which specific assumption is load-bearing, not just
+        // "let's question assumptions" — forces a concrete epistemic challenge.
+        system: "You are The First Principles Thinker on an LLM Council. Ignore the surface question. What is actually being decided? Identify the one load-bearing assumption the question is built on. Is that assumption true? If it isn't, what should the real question be? No preamble.",
       },
       {
         id: "expansionist",    name: "The Expansionist",  accent: "var(--green)",
         tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-maximize",
         tagline: "Finds hidden upside",
-        system: "You are The Expansionist on an LLM Council. Find the upside everyone misses. What's bigger? What adjacent opportunity hides here? 100 words max. No preamble.",
+        // Demand specific opportunities, not optimistic generalities — the
+        // "non-obvious" framing forces naming something others would overlook.
+        system: "You are The Expansionist on an LLM Council. Find the non-obvious upside. Not the obvious win — the asymmetric bet this unlocks. What adjacent move does success create? What becomes possible that wasn't before? Name it specifically, don't describe it in generalities. No preamble.",
       },
       {
         id: "outsider",        name: "The Outsider",      accent: "var(--amber)",
         tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-eye",
         tagline: "Zero context, clear eyes",
-        system: "You are The Outsider on an LLM Council. No context about this person or field. What's obvious to them but confusing to everyone else? 100 words max. No preamble.",
+        // Require pointing at specific confusing or undefined terms — avoids
+        // the generic "I'd want more context" response.
+        system: "You are The Outsider on an LLM Council. You have zero prior context — react only to what is written. Point to the specific thing that is confusing, undefined, or assumed without justification. What would a sharp generalist ask walking in cold that the insiders aren't asking? No preamble.",
       },
       {
         id: "executor",        name: "The Executor",      accent: "var(--blue)",
         tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-bolt",
         tagline: "What do you do Monday?",
-        system: "You are The Executor on an LLM Council. Fastest path to done. What do you do Monday morning, specifically? 100 words max. No preamble.",
+        // Demand named actors and a timeline — prevents the executor from
+        // producing strategic advice dressed up as operational guidance.
+        system: "You are The Executor on an LLM Council. Skip strategy entirely. Give the operational path: what are the first three concrete actions, who does each one, and by when? If the answer can't be acted on this week it's too abstract. No preamble.",
       },
     ];
 
-    const CHAIRMAN_SYSTEM = "You are the Chairman of an LLM Council. Synthesize advisor perspectives and peer reviews into a definitive verdict. Be direct. Do not hedge. Weigh disagreements carefully. The verdict should be more insightful than any single advisor. In multi-turn conversations, build upon prior turns rather than repeating them.";
+    // The chairman is a decision-maker, not a reporter. The system prompt
+    // pushes them to take positions and produce non-obvious synthesis rather
+    // than summarising what the advisors said.
+    const CHAIRMAN_SYSTEM = "You are the Chairman of an LLM Council. You are a decision-maker, not a reporter. Your role: synthesize conflicting expert views into decisive, specific action. Take positions. Resolve disagreements by naming who is right and exactly why. Your verdict must contain at least one insight that no single advisor produced. Be specific enough to act on — no platitudes, no hedging. In multi-turn conversations, build forward; never restate what prior turns already established.";
 
     /* ── STREAMING ──────────────────────────────────────────────────────
        cachedText, when provided, becomes a leading ephemeral content block.
@@ -1080,11 +1093,12 @@
       const executeCouncilTurn = useCallback(async (newPrompt, priorTurns) => {
         const priorContext = buildPriorTurnsContext(priorTurns);
 
-        // The advisor question is framed differently for follow-ups so advisors
-        // explicitly build on the established conversation context.
+        // The question wrapper pushes advisors toward specificity rather than
+        // generic commentary. "Name things" is deliberate — it forces commitment
+        // to concrete claims rather than hedged observations.
         const advisorQuestion = priorContext
-          ? `Prior conversation context is provided above. Continue the discussion.\n\nNew question: ${newPrompt}\n\nRespond from your perspective.`
-          : `Question for the council:\n\n---\n${newPrompt}\n---\n\nBe direct. Lean fully into your angle.`;
+          ? `Prior context above. Follow-up question: ${newPrompt}\n\nBuild only on what's new — no repetition of prior turns. Apply your distinct lens. Name specific things.`
+          : `Question for the council:\n\n---\n${newPrompt}\n---\n\nApply your distinct lens. Name specific things — failure modes, opportunities, actions, contradictions. No generic advice.`;
 
         /* Phase 1: Active advisors in parallel ────────────────────────
            Sliced to `advisorCount` so users can trade depth for cost.
@@ -1121,9 +1135,12 @@
           }).join("\n");
           const reviewCachePrefix = priorContext ? `${priorContext}\n\n${anonymousBlock}` : anonymousBlock;
 
+          // The peer reviewer is asked to identify errors (not just gaps) and
+          // to resolve the most important disagreement — this surfaces the
+          // actual tension the chairman needs to arbitrate.
           peerReviewText = await collect(
-            "You are an impartial Council Analyst. Evaluate advisor responses precisely. No preamble.",
-            `Question: "${newPrompt}"\n\n1. Strongest response (letter + reason)\n2. Biggest blind spot\n3. Critical insight ALL missed\n4. Sharpest disagreement for Chairman\n\n100 words max.`,
+            "You are an impartial Council Analyst. Your job is to find errors in reasoning, not just missing topics. Be precise and critical. No preamble.",
+            `Question: "${newPrompt}"\n\n1. Which advisor's logic is most sound? (letter + one sentence why)\n2. Which advisor made an unsupported leap or factual error? (letter + what specifically)\n3. What is the single most important thing none of them addressed?\n4. What is the key tension the Chairman must explicitly resolve?\n\nBe specific. Identify errors, not just gaps.`,
             apiKey, advisorModel,
             full => setLiveRev(full),
             reviewCachePrefix,
@@ -1155,7 +1172,9 @@
           ? `\n\nREQUIRED: You MUST append exactly one Mermaid.js diagram at the very end of your response. This is mandatory. Use this exact format:\n\n\`\`\`mermaid\n[your diagram here]\n\`\`\`\n\nChoose the diagram type that best represents the decision structure: flowchart for decisions/processes, graph LR for relationships, sequenceDiagram for timelines, mindmap for hierarchies. The diagram must directly visualize the core recommendation.`
           : "";
 
-        const synthesisPrompt = `Produce the verdict with exactly these five section headers:\n\n## Where the Council Agrees\n## Where the Council Clashes\n## Blind Spots the Council Caught\n## The Recommendation\n## The One Thing to Do First${diagramInstruction}`;
+        // Each section gets an explicit instruction so the chairman produces
+        // specific, position-taking content rather than neutral summaries.
+        const synthesisPrompt = `Produce a precise, actionable verdict using exactly these five section headers. Each section must be specific — name things, take positions, commit to claims.\n\n## Where the Council Agrees\nState the consensus as a concrete claim. Then say in one sentence whether that consensus is correct or dangerously incomplete.\n\n## Where the Council Clashes\nName the specific disagreement. Take a side: say which advisor is right and exactly why in one sentence. Do not present both sides without resolving them.\n\n## Blind Spots the Council Caught\nName the single most important thing from the peer review that changes the picture. One specific insight, not a list.\n\n## The Recommendation\nOne directive. Address the original question directly. Actionable within 48 hours. No options, no hedging.\n\n## The One Thing to Do First\nOne sentence. One specific action. Concrete enough to execute today.${diagramInstruction}`;
 
         const rawVerdict = await collect(
           CHAIRMAN_SYSTEM, synthesisPrompt, apiKey, model,
