@@ -8,8 +8,10 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
-  <!-- Dexie: IndexedDB wrapper for persistent session history -->
+  <!-- Dexie: IndexedDB for persistent multi-turn session history -->
   <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
+  <!-- Mermaid: diagram rendering for the optional diagram generation feature -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.4.0/dist/tabler-icons.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rubik:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
   <style>
@@ -51,10 +53,9 @@
     textarea, input, button { font-family: inherit; }
     button { cursor: pointer; }
 
-    /* Subtle scrollbars app-wide */
     ::-webkit-scrollbar       { width: 3px; height: 3px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 2px; transition: background 0.2s; }
     ::-webkit-scrollbar-thumb:hover { background: var(--t3); }
 
     @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -66,7 +67,6 @@
     .spin     { animation: spin .85s linear infinite; }
     .pulse    { animation: pulse 1.6s ease infinite; }
 
-    /* Markdown prose */
     .md { font-size: 14px; line-height: 1.75; color: var(--t1); }
     .md p { margin-bottom: .6em; }
     .md p:last-child { margin-bottom: 0; }
@@ -82,120 +82,97 @@
     .md blockquote { padding-left: 12px; border-left: 1px solid var(--bd2); color: var(--t2); margin-bottom: .6em; font-style: italic; }
     .md a { color: var(--amber); text-decoration: none; }
 
-    .tag    { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+    .tag     { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
-    /* ── Two-panel app shell ───────────────────────────────────── */
-    .app-shell {
-      display: flex;
-      min-height: 100dvh;
-    }
+    /* ── App shell ─────────────────────────────────────────────────── */
+    .app-shell  { display: flex; min-height: 100dvh; }
+    .main-panel { flex: 1; min-width: 0; overflow-y: auto; height: 100dvh; }
 
-    /* ── History sidebar ───────────────────────────────────────── */
+    /* ── History sidebar ────────────────────────────────────────────── */
     .sidebar {
-      width: var(--sidebar-w);
-      flex-shrink: 0;
-      background: var(--bg2);
-      border-right: 1px solid var(--bd);
-      display: flex;
-      flex-direction: column;
-      position: sticky;
-      top: 0;
-      height: 100dvh;
-      overflow: hidden;
+      width: var(--sidebar-w); flex-shrink: 0; background: var(--bg2);
+      border-right: 1px solid var(--bd); display: flex; flex-direction: column;
+      position: sticky; top: 0; height: 100dvh; overflow: hidden;
       transition: width 0.22s ease-in-out, opacity 0.22s ease-in-out, border-color 0.22s;
     }
-    .sidebar.is-collapsed {
-      width: 0;
-      opacity: 0;
-      border-color: transparent;
-      pointer-events: none;
-    }
+    .sidebar.is-collapsed { width: 0; opacity: 0; border-color: transparent; pointer-events: none; }
+    .sidebar__head { padding: 18px 14px 14px; border-bottom: 1px solid var(--bd); flex-shrink: 0; }
+    .sidebar__scroll { flex: 1; overflow-y: auto; padding: 8px 8px 24px; }
 
-    .sidebar__head {
-      padding: 18px 14px 14px;
-      border-bottom: 1px solid var(--bd);
-      flex-shrink: 0;
-    }
-
-    .sidebar__scroll {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 8px 24px;
-    }
-
-    /* Individual session cards in the sidebar list */
     .session-card {
-      padding: 9px 10px;
-      border-radius: 6px;
-      cursor: pointer;
-      margin-bottom: 2px;
+      padding: 9px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 2px;
       border: 1px solid transparent;
-      transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out;
+      transition: background 0.2s ease-in-out, border-color 0.2s ease-in-out;
     }
-    .session-card:hover { background: var(--bg3); border-color: var(--bd); }
+    .session-card:hover  { background: var(--bg3); border-color: var(--bd); }
     .session-card.is-active { background: var(--amber-tint); border-color: var(--amber-ring); }
-
     .session-card__title {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--t1);
-      line-height: 1.4;
-      margin-bottom: 3px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      font-size: 12px; font-weight: 500; color: var(--t1); line-height: 1.4; margin-bottom: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .session-card__time {
-      font-family: var(--mono);
-      font-size: 9px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: var(--t3);
-    }
+    .session-card__time { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--t3); }
 
-    /* New Council button in sidebar */
     .new-council-btn {
-      width: 100%;
-      padding: 9px 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--amber-tint);
-      border: 1px solid var(--amber-ring);
-      border-radius: 6px;
-      color: var(--amber);
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s ease-in-out, opacity 0.15s;
+      width: 100%; padding: 9px 12px; display: flex; align-items: center; gap: 8px;
+      background: var(--amber-tint); border: 1px solid var(--amber-ring); border-radius: 6px;
+      color: var(--amber); font-size: 12px; font-weight: 500; cursor: pointer;
+      transition: background 0.2s ease-in-out;
     }
     .new-council-btn:hover { background: oklch(72% 0.16 65 / 0.18); }
 
-    /* Sidebar collapse / expand toggle */
     .sidebar-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      background: none;
-      border: none;
-      border-radius: 5px;
-      color: var(--t3);
-      cursor: pointer;
-      transition: color 0.15s, background 0.15s;
-      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; background: none; border: none; border-radius: 5px;
+      color: var(--t3); cursor: pointer; flex-shrink: 0;
+      transition: color 0.2s, background 0.2s;
     }
     .sidebar-toggle:hover { color: var(--t1); background: var(--bg3); }
 
-    /* ── Main scrollable content area ─────────────────────────── */
-    .main-panel {
-      flex: 1;
-      min-width: 0;
-      overflow-y: auto;
-      height: 100dvh;
+    /* ── Conversation thread ────────────────────────────────────────── */
+    .conversation-thread { display: flex; flex-direction: column; gap: 0; }
+
+    /* Visual separator between turns in a multi-turn thread */
+    .turn-separator {
+      display: flex; align-items: center; gap: 12; margin: 32px 0 24px;
     }
+
+    /* The "one thing to do first" uses body-weight text with a left border accent.
+       This deliberately avoids the oversized display font previously used here. */
+    .first-action-item {
+      border-left: 3px solid var(--green);
+      padding: 14px 18px 14px 20px;
+      background: var(--green-tint);
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      line-height: 1.75;
+      color: var(--t1);
+    }
+
+    /* Follow-up input section anchored at the bottom of the thread */
+    .follow-up-section {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid var(--bd);
+    }
+
+    /* Diagram toggle button — adjacent to the prompt submit row */
+    .diagram-toggle {
+      display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 6px;
+      font-size: 12px; cursor: pointer; flex-shrink: 0;
+      transition: all 0.2s ease-in-out;
+    }
+    .diagram-toggle.is-on  { background: var(--blue-tint); border: 1px solid var(--blue-ring); color: var(--blue); }
+    .diagram-toggle.is-off { background: var(--bg3); border: 1px solid var(--bd); color: var(--t3); }
+    .diagram-toggle:hover  { opacity: 0.85; }
+
+    /* Diagram card — rendered when a Mermaid block is found in the verdict */
+    .diagram-card {
+      padding: 20px; margin-bottom: 16px;
+      background: var(--blue-tint); border: 1px solid var(--blue-ring); border-radius: 8px;
+      overflow-x: auto;
+    }
+    .diagram-card svg { max-width: 100%; height: auto; display: block; }
   </style>
 </head>
 <body>
@@ -203,21 +180,50 @@
   <script type="text/babel" data-presets="react">
     const { useState, useCallback, useEffect, useRef, useMemo } = React;
 
-    /* ── LOCAL DATABASE ───────────────────────────────────────────────
-       Dexie wraps IndexedDB with a promise API. Sessions are stored
-       permanently in the browser so the user can replay any past
-       council verdict without making a new API call.                    */
-    const db = new Dexie("SaiCouncilDB");
-    db.version(1).stores({
-      sessions: "++id, timestamp, title",
-    });
-
-    async function persistSession({ prompt, advisorTexts, peerReview, verdict }) {
-      const title = prompt.trim().slice(0, 35) + (prompt.trim().length > 35 ? "…" : "");
-      return db.sessions.add({ title, timestamp: Date.now(), prompt, advisorTexts, peerReview, verdict });
+    /* ── MERMAID INIT ─────────────────────────────────────────────────
+       Disable auto-start; we call mermaid.render() manually per component
+       so diagrams don't conflict with React's DOM management.            */
+    if (typeof mermaid !== "undefined") {
+      mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
     }
 
-    /* ── CONSTANTS ────────────────────────────────────────────────── */
+    /* ── LOCAL DATABASE ───────────────────────────────────────────────
+       Version 1 (legacy): sessions stored with flat prompt/verdict fields.
+       Version 2 (current): each session has a `turns` array so the full
+       conversational thread is stored and replayable without an API call.  */
+    const db = new Dexie("SaiCouncilDB");
+    db.version(1).stores({ sessions: "++id, timestamp, title" });
+    db.version(2).stores({ sessions: "++id, timestamp, title" }).upgrade(tx =>
+      tx.table("sessions").toCollection().modify(session => {
+        // Wrap any legacy flat-field sessions into the new turns format
+        if (!session.turns) {
+          session.turns = [{
+            prompt:       session.prompt       || "",
+            advisorTexts: session.advisorTexts || {},
+            peerReview:   session.peerReview   || "",
+            verdict:      session.verdict      || "",
+            diagramCode:  null,
+          }];
+          delete session.prompt;
+          delete session.advisorTexts;
+          delete session.peerReview;
+          delete session.verdict;
+        }
+      })
+    );
+
+    async function createNewSession(firstTurn) {
+      const title = firstTurn.prompt.trim().slice(0, 35) + (firstTurn.prompt.trim().length > 35 ? "…" : "");
+      return db.sessions.add({ title, timestamp: Date.now(), turns: [firstTurn] });
+    }
+
+    async function appendTurnToSession(sessionId, newTurn) {
+      const session = await db.sessions.get(sessionId);
+      if (!session) return;
+      return db.sessions.update(sessionId, { turns: [...(session.turns || []), newTurn] });
+    }
+
+    /* ── CONSTANTS ─────────────────────────────────────────────────── */
 
     const MODELS = [
       { id: "claude-opus-4-7",           label: "Opus 4.7",   sub: "Highest quality" },
@@ -225,50 +231,49 @@
       { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5",  sub: "Fastest · cheapest" },
     ];
 
-    // When Fast Advisors is on, phases 1–2 run on Haiku; only the Chairman uses
-    // the user's selected model. This cuts per-session cost by ~73%.
+    // Phases 1+2 (advisors + peer review) are routed to this cheap model.
+    // Only the Chairman synthesis uses the user's selected quality model.
     const FAST_MODEL = "claude-haiku-4-5-20251001";
 
     const ADVISORS = [
       {
-        id: "contrarian",      name: "The Contrarian",     accent: "var(--red)",
+        id: "contrarian",      name: "The Contrarian",    accent: "var(--red)",
         tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-sword",
         tagline: "Hunts for fatal flaws",
         system: "You are The Contrarian on an LLM Council. Find the fatal flaw. Be direct, unsparing. 100 words max. No preamble.",
       },
       {
-        id: "firstprinciples", name: "First Principles",   accent: "var(--purple)",
+        id: "firstprinciples", name: "First Principles",  accent: "var(--purple)",
         tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-atom",
         tagline: "Questions the question itself",
         system: "You are The First Principles Thinker on an LLM Council. Strip assumptions, rebuild from scratch. Is the question itself wrong? 100 words max. No preamble.",
       },
       {
-        id: "expansionist",    name: "The Expansionist",   accent: "var(--green)",
+        id: "expansionist",    name: "The Expansionist",  accent: "var(--green)",
         tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-maximize",
         tagline: "Finds hidden upside",
         system: "You are The Expansionist on an LLM Council. Find the upside everyone misses. What's bigger? What adjacent opportunity hides here? 100 words max. No preamble.",
       },
       {
-        id: "outsider",        name: "The Outsider",       accent: "var(--amber)",
+        id: "outsider",        name: "The Outsider",      accent: "var(--amber)",
         tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-eye",
         tagline: "Zero context, clear eyes",
         system: "You are The Outsider on an LLM Council. No context about this person or field. What's obvious to them but confusing to everyone else? 100 words max. No preamble.",
       },
       {
-        id: "executor",        name: "The Executor",       accent: "var(--blue)",
+        id: "executor",        name: "The Executor",      accent: "var(--blue)",
         tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-bolt",
         tagline: "What do you do Monday?",
         system: "You are The Executor on an LLM Council. Fastest path to done. What do you do Monday morning, specifically? 100 words max. No preamble.",
       },
     ];
 
-    const CHAIRMAN_SYSTEM = "You are the Chairman of an LLM Council. Synthesize five advisor perspectives and peer reviews into a definitive verdict. Be direct. Do not hedge. Weigh disagreements carefully. The verdict should be more insightful than any single advisor.";
+    const CHAIRMAN_SYSTEM = "You are the Chairman of an LLM Council. Synthesize advisor perspectives and peer reviews into a definitive verdict. Be direct. Do not hedge. Weigh disagreements carefully. The verdict should be more insightful than any single advisor. In multi-turn conversations, build upon prior turns rather than repeating them.";
 
-    /* ── STREAMING ────────────────────────────────────────────────── */
-
-    // Builds the messages array. When cachedText is provided it becomes the
-    // first content block marked ephemeral — Anthropic reuses it across calls
-    // within the same session window, giving a meaningful cache discount.
+    /* ── STREAMING ──────────────────────────────────────────────────────
+       cachedText, when provided, becomes a leading ephemeral content block.
+       Anthropic reuses this across calls in the same session window —
+       critical for multi-turn threads where prior context grows each turn.  */
     function buildMessages(user, cachedText) {
       if (!cachedText) return [{ role: "user", content: user }];
       return [{
@@ -287,16 +292,12 @@
           "Content-Type": "application/json",
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
-          // Enables prompt caching + 1-hour extended TTL for cached blocks
           "anthropic-beta": "prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11",
           "anthropic-dangerous-direct-browser-access": "true",
         },
         body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          stream: true,
-          // cache_control on the system block so this instruction is reused
-          // across all five parallel advisor calls — saves repeated encoding.
+          model, max_tokens: maxTokens, stream: true,
+          // System block is cached so it's free on all subsequent advisor calls
           system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
           messages: buildMessages(user, cachedText),
         }),
@@ -337,10 +338,10 @@
       return text;
     }
 
-    /* ── VERDICT PARSE ────────────────────────────────────────────── */
+    /* ── PARSING UTILITIES ──────────────────────────────────────────── */
 
     function parseVerdict(text) {
-      const sections = [
+      const defs = [
         { key: "agrees",  re: /##\s*Where the Council Agrees\s*([\s\S]*?)(?=##|$)/i },
         { key: "clashes", re: /##\s*Where the Council Clashes\s*([\s\S]*?)(?=##|$)/i },
         { key: "blind",   re: /##\s*Blind Spots[^\n]*\s*([\s\S]*?)(?=##|$)/i },
@@ -348,12 +349,34 @@
         { key: "first",   re: /##\s*The One Thing[^\n]*\s*([\s\S]*?)(?=##|$)/i },
       ];
       const out = {};
-      sections.forEach(({ key, re }) => { const m = text.match(re); out[key] = m ? m[1].trim() : ""; });
+      defs.forEach(({ key, re }) => { const m = text.match(re); out[key] = m ? m[1].trim() : ""; });
       if (!out.rec) out.raw = text;
       return out;
     }
 
-    /* ── RELATIVE TIME ────────────────────────────────────────────── */
+    // Splits the raw chairman verdict into clean verdict text + an optional
+    // Mermaid diagram code string. The diagram is appended by the model only
+    // when the "Generate diagrams" toggle is on and a diagram adds genuine value.
+    function splitVerdictAndDiagram(rawText) {
+      const match = rawText.match(/```mermaid\s*([\s\S]*?)```/);
+      if (match) {
+        return {
+          verdictText: rawText.replace(/```mermaid[\s\S]*?```/, "").trim(),
+          diagramCode: match[1].trim(),
+        };
+      }
+      return { verdictText: rawText, diagramCode: null };
+    }
+
+    // Serializes all completed turns into a single string used as the cached
+    // prefix for follow-up API calls. Each new turn appends to this block,
+    // and Anthropic's ephemeral cache handles the growing context cheaply.
+    function buildPriorTurnsContext(completedTurns) {
+      if (!completedTurns.length) return null;
+      return completedTurns.map((t, i) =>
+        `=== Turn ${i + 1} ===\nQuestion: ${t.prompt}\n\nVerdict:\n${t.verdict}`
+      ).join("\n\n---\n\n");
+    }
 
     function relativeTime(ts) {
       const m = Math.floor((Date.now() - ts) / 60000);
@@ -366,7 +389,7 @@
       return new Date(ts).toLocaleDateString();
     }
 
-    /* ── SMALL COMPONENTS ─────────────────────────────────────────── */
+    /* ── SMALL COMPONENTS ───────────────────────────────────────────── */
 
     function Md({ text, style }) {
       const html = useMemo(() => {
@@ -398,19 +421,50 @@
 
     function Divider({ label }) {
       return (
-        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "32px 0 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "28px 0 18px" }}>
           <span className="tag" style={{ color: "var(--t3)", flexShrink: 0 }}>{label}</span>
           <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
         </div>
       );
     }
 
-    /* ── HISTORY SIDEBAR ──────────────────────────────────────────── */
+    /* ── MERMAID DIAGRAM ────────────────────────────────────────────────
+       Renders a Mermaid code string into an SVG inside a dedicated card.
+       Each instance gets a unique ID so multiple diagrams per thread
+       don't collide.                                                       */
+    function MermaidDiagram({ code }) {
+      const containerRef = useRef(null);
+      const uniqueId     = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`);
+
+      useEffect(() => {
+        if (!containerRef.current || !code || typeof mermaid === "undefined") return;
+        mermaid.render(uniqueId.current, code)
+          .then(({ svg }) => {
+            if (containerRef.current) containerRef.current.innerHTML = svg;
+          })
+          .catch(() => {
+            if (containerRef.current) containerRef.current.textContent = "";
+          });
+      }, [code]);
+
+      return (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <i className="ti ti-chart-dots-3" style={{ fontSize: 13, color: "var(--blue)" }} />
+            <span className="tag" style={{ color: "var(--blue)", fontSize: 10 }}>Supporting diagram</span>
+          </div>
+          <div className="diagram-card">
+            <div ref={containerRef} />
+          </div>
+        </div>
+      );
+    }
+
+    /* ── HISTORY SIDEBAR ────────────────────────────────────────────── */
 
     function HistorySidebar({ sessions, activeSessionId, isOpen, onSelect, onNewCouncil, onToggle }) {
       return (
         <aside className={`sidebar${isOpen ? "" : " is-collapsed"}`} aria-label="Session history">
-
           <div className="sidebar__head">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <span className="tag" style={{ color: "var(--t3)" }}>History</span>
@@ -419,38 +473,31 @@
               </button>
             </div>
             <button className="new-council-btn" onClick={onNewCouncil}>
-              <i className="ti ti-plus" style={{ fontSize: 13 }} />
-              New Council
+              <i className="ti ti-plus" style={{ fontSize: 13 }} />New Council
             </button>
           </div>
-
           <div className="sidebar__scroll">
             {sessions.length === 0 ? (
               <div style={{ padding: "24px 10px", textAlign: "center" }}>
                 <i className="ti ti-clock" style={{ fontSize: 22, color: "var(--t3)", display: "block", marginBottom: 10 }} />
                 <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>No sessions yet</p>
-                <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 6, lineHeight: 1.6 }}>
-                  Completed councils are<br />saved here automatically
-                </p>
+                <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 6, lineHeight: 1.6 }}>Completed councils are<br />saved here automatically</p>
               </div>
             ) : sessions.map(s => (
-              <div
-                key={s.id}
-                className={`session-card${activeSessionId === s.id ? " is-active" : ""}`}
-                onClick={() => onSelect(s)}
-                title={s.title}
-              >
+              <div key={s.id} className={`session-card${activeSessionId === s.id ? " is-active" : ""}`} onClick={() => onSelect(s)} title={s.title}>
                 <p className="session-card__title">{s.title}</p>
-                <p className="session-card__time">{relativeTime(s.timestamp)}</p>
+                <p className="session-card__time">
+                  {relativeTime(s.timestamp)}
+                  {s.turns && s.turns.length > 1 && <span style={{ marginLeft: 6, opacity: 0.7 }}>· {s.turns.length} turns</span>}
+                </p>
               </div>
             ))}
           </div>
-
         </aside>
       );
     }
 
-    /* ── API KEY SETUP ────────────────────────────────────────────── */
+    /* ── API KEY SETUP ──────────────────────────────────────────────── */
 
     function ApiKeySetup({ onSave }) {
       const [key, setKey] = useState("");
@@ -462,7 +509,7 @@
         if (!k) return;
         setBusy(true); setErr("");
         try {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
+          const res  = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-api-key": k, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
             body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 5, messages: [{ role: "user", content: "ping" }] }),
@@ -485,38 +532,30 @@
               Your key stays in your browser and is sent only to Anthropic.
             </p>
             <label className="tag" style={{ display: "block", color: "var(--t3)", marginBottom: 8 }}>Anthropic API key</label>
-            <input
-              type="password" value={key} onChange={e => setKey(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && submit()}
-              placeholder="sk-ant-..." autoFocus
-              style={{ width: "100%", padding: "11px 14px", fontSize: 14, fontFamily: "var(--mono)", background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: 6, color: "var(--t1)", outline: "none", marginBottom: 12 }}
-            />
+            <input type="password" value={key} onChange={e => setKey(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="sk-ant-..." autoFocus
+              style={{ width: "100%", padding: "11px 14px", fontSize: 14, fontFamily: "var(--mono)", background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: 6, color: "var(--t1)", outline: "none", marginBottom: 12 }} />
             {err && (
               <div style={{ fontSize: 12, color: "var(--red)", padding: "8px 12px", marginBottom: 12, background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 5 }}>
                 <i className="ti ti-alert-triangle" style={{ marginRight: 6, fontSize: 12 }} />{err}
               </div>
             )}
-            <button
-              onClick={submit} disabled={!key.trim() || busy}
-              style={{ width: "100%", padding: "12px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: (!key.trim() || busy) ? 0.35 : 1, transition: "opacity .15s" }}
-            >
+            <button onClick={submit} disabled={!key.trim() || busy}
+              style={{ width: "100%", padding: "12px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: (!key.trim() || busy) ? 0.35 : 1, transition: "opacity .15s" }}>
               {busy ? "VERIFYING…" : "ENTER THE COUNCIL"}
             </button>
             <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 16, textAlign: "center" }}>
               Get your key at{" "}
-              <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--amber)", textDecoration: "none" }}>
-                console.anthropic.com
-              </a>
+              <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--amber)", textDecoration: "none" }}>console.anthropic.com</a>
             </p>
           </div>
         </div>
       );
     }
 
-    /* ── SETTINGS PANEL ───────────────────────────────────────────── */
+    /* ── SETTINGS PANEL ─────────────────────────────────────────────── */
 
     function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, onClearKey, onClose }) {
-      const synthesisLabel = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "selected";
+      const synthesisLabel = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "Haiku";
       return (
         <>
           <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 90, background: "oklch(0% 0 0 / 0.55)" }} />
@@ -527,13 +566,12 @@
                 <i className="ti ti-x" style={{ fontSize: 16 }} />
               </button>
             </div>
-
-            <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Model</p>
+            <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Chairman model</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 28 }}>
               {MODELS.map(m => (
                 <button key={m.id} onClick={() => onModel(m.id)}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", textAlign: "left", background: model === m.id ? "var(--amber-tint)" : "var(--bg3)", border: `1px solid ${model === m.id ? "var(--amber-ring)" : "var(--bd)"}`, borderRadius: 6, transition: "all .15s" }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: model === m.id ? "var(--amber)" : "var(--bd2)", flexShrink: 0, transition: "background .15s" }} />
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: model === m.id ? "var(--amber)" : "var(--bd2)", flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>{m.label}</p>
                     <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>{m.sub}</p>
@@ -542,10 +580,9 @@
                 </button>
               ))}
             </div>
-
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Cost optimization</p>
             <button onClick={() => onFast(!fastAdvisors)}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: fastAdvisors ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${fastAdvisors ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .15s" }}>
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: fastAdvisors ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${fastAdvisors ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .2s" }}>
               <div style={{ textAlign: "left" }}>
                 <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>Fast advisors</p>
                 <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Haiku for phases 1–2 · {synthesisLabel} for verdict</p>
@@ -555,9 +592,8 @@
               </div>
             </button>
             {fastAdvisors
-              ? <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 28 }}>~73% cheaper · saves ~$0.065/session on Sonnet</p>
+              ? <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 28 }}>~73% cheaper · context caching grows savings further on long threads</p>
               : <div style={{ marginBottom: 28 }} />}
-
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>API Key</p>
             <div style={{ padding: "10px 12px", marginBottom: 10, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6 }}>
               <p style={{ fontSize: 12, fontFamily: "var(--mono)", color: "var(--t3)", wordBreak: "break-all" }}>{apiKey.slice(0, 14)}{"•".repeat(18)}</p>
@@ -570,28 +606,22 @@
       );
     }
 
-    /* ── PHASE STEPPER ────────────────────────────────────────────── */
+    /* ── PHASE STEPPER ──────────────────────────────────────────────── */
 
     function PhaseStepper({ phase }) {
-      const steps = [
-        { id: "advisors",  label: "Advisors"    },
-        { id: "review",    label: "Peer review" },
-        { id: "synthesis", label: "Chairman"    },
-      ];
+      const steps = [{ id: "advisors", label: "Advisors" }, { id: "review", label: "Peer review" }, { id: "synthesis", label: "Chairman" }];
       const activeIdx = steps.findIndex(s => s.id === phase);
       return (
-        <div style={{ display: "flex", alignItems: "center", padding: "16px 20px", marginBottom: 24, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "16px 20px", marginBottom: 20, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
           {steps.map(({ id, label }, i) => {
             const isDone = i < activeIdx, isLive = i === activeIdx;
             return (
               <React.Fragment key={id}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
                   <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${isDone ? "var(--green)" : isLive ? "var(--amber)" : "var(--bd2)"}`, background: isDone ? "var(--green)" : isLive ? "var(--amber-tint)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .4s" }}>
-                    {isDone
-                      ? <i className="ti ti-check" style={{ fontSize: 12, color: "var(--bg)" }} />
-                      : isLive
-                        ? <div className="spin" style={{ width: 11, height: 11, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%" }} />
-                        : <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--bd2)" }} />}
+                    {isDone ? <i className="ti ti-check" style={{ fontSize: 12, color: "var(--bg)" }} />
+                      : isLive ? <div className="spin" style={{ width: 11, height: 11, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%" }} />
+                      : <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--bd2)" }} />}
                   </div>
                   <span className="tag" style={{ fontSize: 9, color: isLive ? "var(--amber)" : isDone ? "var(--green)" : "var(--t3)", whiteSpace: "nowrap" }}>{label}</span>
                 </div>
@@ -603,50 +633,46 @@
       );
     }
 
-    /* ── ADVISOR ROW (live stream) ────────────────────────────────── */
+    /* ── ADVISOR ROW (live streaming) ───────────────────────────────── */
 
     function AdvisorRow({ advisor, live, done, phase }) {
-      const isReviewPhase = phase === "review";
       return (
-        <div style={{ padding: "14px 18px", background: done ? "var(--green-tint)" : "var(--bg2)", border: `1px solid ${done ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 7, marginBottom: 6, transition: "background .3s, border-color .3s" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: live ? 10 : 0 }}>
+        <div style={{ padding: "13px 16px", background: done ? "var(--green-tint)" : "var(--bg2)", border: `1px solid ${done ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 7, marginBottom: 5, transition: "background .3s, border-color .3s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: live ? 8 : 0 }}>
             {done
-              ? <i className="ti ti-check" style={{ fontSize: 14, color: "var(--green)", flexShrink: 0 }} />
-              : <i className={`ti ${advisor.icon} pulse`} style={{ fontSize: 14, color: advisor.accent, flexShrink: 0 }} />}
+              ? <i className="ti ti-check" style={{ fontSize: 13, color: "var(--green)", flexShrink: 0 }} />
+              : <i className={`ti ${advisor.icon} pulse`} style={{ fontSize: 13, color: advisor.accent, flexShrink: 0 }} />}
             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{advisor.name}</span>
               <span className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{advisor.tagline}</span>
             </div>
             <span className="tag" style={{ fontSize: 9, color: done ? "var(--green)" : "var(--t3)" }}>
-              {done
-                ? (isReviewPhase ? "reviewed"    : "responded")
-                : (isReviewPhase ? "reviewing…"  : "deliberating…")}
+              {done ? (phase === "review" ? "reviewed" : "responded") : (phase === "review" ? "reviewing…" : "deliberating…")}
             </span>
           </div>
           {live && (
-            <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 72, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
-              {live}
-              {!done && <span style={{ animation: "blink .7s step-end infinite", color: advisor.accent }}>▋</span>}
+            <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 60, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
+              {live}{!done && <span style={{ animation: "blink .7s step-end infinite", color: advisor.accent }}>▋</span>}
             </div>
           )}
         </div>
       );
     }
 
-    /* ── ACCORDION ────────────────────────────────────────────────── */
+    /* ── ACCORDION ──────────────────────────────────────────────────── */
 
     function Accordion({ label, sub, accent, tint, ring, isOpen, onToggle, children }) {
       return (
         <div style={{ border: `1px solid ${isOpen ? ring : "var(--bd)"}`, borderRadius: 7, overflow: "hidden", transition: "border-color .2s", marginBottom: 5, background: isOpen ? tint : "transparent" }}>
-          <button onClick={onToggle} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "13px 18px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+          <button onClick={onToggle} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: isOpen ? accent : "var(--bd2)", transition: "background .2s" }} />
             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", flex: 1 }}>{label}</span>
             <span className="tag" style={{ color: "var(--t3)", marginRight: 8, fontSize: 9 }}>{sub}</span>
             <i className={`ti ti-chevron-${isOpen ? "up" : "down"}`} style={{ fontSize: 13, color: "var(--t3)" }} />
           </button>
           {isOpen && (
-            <div className="fade-up" style={{ padding: "4px 20px 20px 36px", borderTop: "1px solid var(--bd)" }}>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+            <div className="fade-up" style={{ padding: "4px 18px 18px 32px", borderTop: "1px solid var(--bd)" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
                 <CopyBtn text={typeof children === "string" ? children : ""} />
               </div>
               <Md text={typeof children === "string" ? children : ""} />
@@ -656,277 +682,433 @@
       );
     }
 
-    /* ── VERDICT SECTION ──────────────────────────────────────────── */
+    /* ── VERDICT SECTION ────────────────────────────────────────────── */
 
     function VerdictSection({ label, icon, accent, tint, ring, text }) {
       if (!text) return null;
       return (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <i className={`ti ${icon}`} style={{ fontSize: 13, color: accent }} />
               <span className="tag" style={{ color: accent, fontSize: 10 }}>{label}</span>
             </div>
             <CopyBtn text={text} />
           </div>
-          <div style={{ padding: "18px 20px", background: tint, border: `1px solid ${ring}`, borderRadius: 8 }}>
+          <div style={{ padding: "16px 18px", background: tint, border: `1px solid ${ring}`, borderRadius: 8 }}>
             <Md text={text} />
           </div>
         </div>
       );
     }
 
-    /* ── COUNCIL (MAIN) ───────────────────────────────────────────── */
+    /* ── TURN CARD ──────────────────────────────────────────────────────
+       Renders a single completed council turn. Handles its own accordion
+       open/close state via a turn-scoped key prefix so multiple turns in a
+       thread don't share accordion state with each other.                   */
+    function TurnCard({ turn, turnIndex, openPanels, onTogglePanel }) {
+      const sec    = useMemo(() => turn.verdict ? parseVerdict(turn.verdict) : null, [turn.verdict]);
+      const prefix = `t${turnIndex}`; // namespace all panel keys by turn index
+
+      if (!sec) return null;
+
+      return (
+        <div className="fade-up" style={{ marginBottom: 0 }}>
+
+          {/* Turn separator — only shown for follow-up turns (not the first) */}
+          {turnIndex > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "36px 0 24px" }}>
+              <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
+              <span className="tag" style={{ color: "var(--t3)", fontSize: 9, flexShrink: 0 }}>Follow-up · Turn {turnIndex + 1}</span>
+              <div style={{ flex: 1, height: 1, background: "var(--bd)" }} />
+            </div>
+          )}
+
+          {/* User's question echo */}
+          <div style={{ padding: "14px 18px", marginBottom: 24, background: "var(--bg2)", border: "1px solid var(--bd)", borderLeft: "3px solid var(--amber)", borderRadius: "0 8px 8px 0", display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <p className="tag" style={{ color: "var(--amber)", marginBottom: 6 }}>
+                {turnIndex === 0 ? "Session question" : "Follow-up question"}
+              </p>
+              <p style={{ fontSize: 14, color: "var(--t2)", lineHeight: 1.65, fontStyle: "italic", margin: 0 }}>"{turn.prompt}"</p>
+            </div>
+            <CopyBtn text={turn.prompt} style={{ flexShrink: 0, marginTop: 2 }} />
+          </div>
+
+          <Divider label="Chairman's verdict" />
+
+          <VerdictSection label="Where the council agrees"  icon="ti-check"          accent="var(--green)"  tint="var(--green-tint)"  ring="var(--green-ring)"  text={sec.agrees}  />
+          <VerdictSection label="Where the council clashes" icon="ti-arrows-exchange" accent="var(--red)"    tint="var(--red-tint)"    ring="var(--red-ring)"    text={sec.clashes} />
+          <VerdictSection label="Blind spots caught"        icon="ti-eye-off"         accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" text={sec.blind}   />
+
+          {sec.rec && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <i className="ti ti-star" style={{ fontSize: 13, color: "var(--amber)" }} />
+                  <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>The recommendation</span>
+                </div>
+                <CopyBtn text={sec.rec} />
+              </div>
+              <div style={{ padding: "16px 18px", background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
+                <Md text={sec.rec} />
+              </div>
+            </div>
+          )}
+
+          {/* "One thing to do first" — rendered at body text weight with a
+              left border accent rather than a large display typeface. This
+              keeps it readable and proportional within the conversation flow. */}
+          {sec.first && (
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <i className="ti ti-arrow-narrow-right" style={{ fontSize: 13, color: "var(--green)" }} />
+                  <span className="tag" style={{ color: "var(--green)", fontSize: 10 }}>The one thing to do first</span>
+                </div>
+                <CopyBtn text={sec.first} />
+              </div>
+              <div className="first-action-item">
+                <Md text={sec.first} />
+              </div>
+            </div>
+          )}
+
+          {sec.raw && (
+            <div style={{ padding: "18px 20px", marginBottom: 24, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+              <Md text={sec.raw} />
+            </div>
+          )}
+
+          {/* Mermaid diagram — only rendered when the model returned one */}
+          {turn.diagramCode && <MermaidDiagram code={turn.diagramCode} />}
+
+          <Divider label="Full transcripts" />
+
+          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Advisor responses</p>
+          <div style={{ marginBottom: 16 }}>
+            {ADVISORS.map(a => (
+              <Accordion key={a.id} label={a.name} sub={a.tagline} accent={a.accent} tint={a.tint} ring={a.ring}
+                isOpen={!!openPanels[`${prefix}-${a.id}`]}
+                onToggle={() => onTogglePanel(`${prefix}-${a.id}`)}>
+                {turn.advisorTexts[a.id] || ""}
+              </Accordion>
+            ))}
+          </div>
+          {turn.peerReview && (
+            <Accordion label="Consolidated peer review" sub="cross-examination" accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)"
+              isOpen={!!openPanels[`${prefix}-rev`]}
+              onToggle={() => onTogglePanel(`${prefix}-rev`)}>
+              {turn.peerReview}
+            </Accordion>
+          )}
+        </div>
+      );
+    }
+
+    /* ── CONVERSATION THREAD ────────────────────────────────────────────
+       Renders all completed turns and auto-scrolls to the newest turn
+       whenever the turns array grows (i.e., after a follow-up completes).   */
+    function ConversationThread({ turns, openPanels, onTogglePanel }) {
+      const bottomAnchorRef = useRef(null);
+
+      useEffect(() => {
+        bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, [turns.length]);
+
+      return (
+        <div className="conversation-thread">
+          {turns.map((turn, idx) => (
+            <TurnCard
+              key={idx}
+              turn={turn}
+              turnIndex={idx}
+              openPanels={openPanels}
+              onTogglePanel={onTogglePanel}
+            />
+          ))}
+          <div ref={bottomAnchorRef} />
+        </div>
+      );
+    }
+
+    /* ── DIAGRAM TOGGLE ─────────────────────────────────────────────── */
+
+    function DiagramToggle({ enabled, onToggle }) {
+      return (
+        <button
+          className={`diagram-toggle ${enabled ? "is-on" : "is-off"}`}
+          onClick={onToggle}
+          title={enabled ? "Disable diagram generation" : "Request a supporting diagram from the Chairman"}
+        >
+          <i className="ti ti-chart-dots-3" style={{ fontSize: 13 }} />
+          {enabled ? "Diagrams on" : "Diagrams"}
+        </button>
+      );
+    }
+
+    /* ── COUNCIL (MAIN) ─────────────────────────────────────────────── */
 
     function Council({ apiKey, onClearKey }) {
 
-      // ── Active session state ──────────────────────────────────────
-      const [q,           setQ]           = useState("");
-      const [phase,       setPhase]       = useState("idle");
-      const [live,        setLive]        = useState({});
-      const [liveRev,     setLiveRev]     = useState("");
-      const [liveVerdict, setLiveVerdict] = useState("");
-      const [advisorDone, setAdvisorDone] = useState({});
-      const [finalTexts,  setFinalTexts]  = useState({});
-      const [peerReview,  setPeerReview]  = useState("");
-      const [verdict,     setVerdict]     = useState("");
-      const [openPanels,  setOpenPanels]  = useState({});
-      const [error,       setError]       = useState(null);
+      // ── Conversation thread state ────────────────────────────────────
+      // `turns` holds all completed turns for the current session.
+      // New turns are appended; loading a historical session hydrates this directly.
+      const [turns,             setTurns]             = useState([]);
+      const [activeDbSessionId, setActiveDbSessionId] = useState(null);
 
-      // ── User preferences (persisted in localStorage) ─────────────
-      const [model,        setModel]        = useState(() => localStorage.getItem("council-model") || MODELS[1].id);
-      const [fastAdvisors, setFastAdvisors] = useState(() => localStorage.getItem("council-fast") !== "false");
-      const [showSettings, setShowSettings] = useState(false);
+      // ── Per-turn ephemeral streaming state ───────────────────────────
+      // These reset at the start of each new turn and hold live output.
+      const [phase,        setPhase]        = useState("idle");
+      const [live,         setLive]         = useState({});
+      const [liveRev,      setLiveRev]      = useState("");
+      const [liveVerdict,  setLiveVerdict]  = useState("");
+      const [advisorDone,  setAdvisorDone]  = useState({});
+      const [error,        setError]        = useState(null);
 
-      // ── Sidebar & history state ───────────────────────────────────
+      // ── Input values ─────────────────────────────────────────────────
+      const [initialQuestion, setInitialQuestion] = useState(""); // first-turn textarea
+      const [followUpInput,   setFollowUpInput]   = useState(""); // follow-up textarea
+
+      // ── User preferences (localStorage-persisted) ────────────────────
+      const [model,            setModel]            = useState(() => localStorage.getItem("council-model") || MODELS[1].id);
+      const [fastAdvisors,     setFastAdvisors]     = useState(() => localStorage.getItem("council-fast") !== "false");
+      const [generateDiagrams, setGenerateDiagrams] = useState(false);
+      const [showSettings,     setShowSettings]     = useState(false);
+
+      // ── Sidebar state ────────────────────────────────────────────────
       const [sidebarOpen,     setSidebarOpen]     = useState(true);
       const [sessions,        setSessions]        = useState([]);
       const [activeSessionId, setActiveSessionId] = useState(null);
 
-      // When Fast Advisors is on, route phases 1+2 to the cheaper Haiku model.
-      // Only the Chairman synthesis uses the user's selected quality model.
-      const advisorModel = fastAdvisors ? FAST_MODEL : model;
-      const isLoading    = ["advisors", "review", "synthesis"].includes(phase);
+      // ── Accordion open/close per panel across all turns ──────────────
+      const [openPanels, setOpenPanels] = useState({});
 
-      const togglePanel = k => setOpenPanels(p => ({ ...p, [k]: !p[k] }));
+      // Phases 1+2 use the cheap Haiku model; Phase 3 uses the quality model.
+      const advisorModel = fastAdvisors ? FAST_MODEL : model;
+      const isProcessing = ["advisors", "review", "synthesis"].includes(phase);
+
+      const togglePanel = useCallback(k => setOpenPanels(p => ({ ...p, [k]: !p[k] })), []);
       const modelLabel  = m => MODELS.find(x => x.id === m)?.label ?? m;
 
       useEffect(() => { localStorage.setItem("council-model", model); }, [model]);
       useEffect(() => { localStorage.setItem("council-fast", fastAdvisors); }, [fastAdvisors]);
 
-      // ── Load session history from IndexedDB ───────────────────────
+      // ── Load session list from IndexedDB on mount ────────────────────
       const refreshSessionList = useCallback(async () => {
         try {
           const all = await db.sessions.orderBy("timestamp").reverse().toArray();
           setSessions(all);
-        } catch (e) {
-          console.warn("Failed to load session history:", e);
-        }
+        } catch (e) { console.warn("History load failed:", e); }
       }, []);
 
       useEffect(() => { refreshSessionList(); }, [refreshSessionList]);
 
-      // ── Hydrate all React state from a stored session ─────────────
-      // No network call — we replay what was already captured at save time.
+      // ── Hydrate React state from a stored session ────────────────────
+      // This replays a complete thread without any API call by restoring the
+      // saved turns array directly into state. The user can then add follow-ups.
       const handleSelectSession = useCallback((session) => {
-        setQ(session.prompt || "");
-        setFinalTexts(session.advisorTexts || {});
-        setPeerReview(session.peerReview || "");
-        setVerdict(session.verdict || "");
-        setPhase("done");
-        setOpenPanels({});
-        setError(null);
-        setLive({});
-        setLiveRev("");
-        setLiveVerdict("");
-        setAdvisorDone({});
+        setTurns(session.turns || []);
+        setActiveDbSessionId(session.id);
         setActiveSessionId(session.id);
-      }, []);
-
-      // ── Reset everything back to a blank scratchpad ───────────────
-      const handleNewCouncil = useCallback(() => {
-        setQ("");
-        setPhase("idle");
-        setLive({});
-        setLiveRev("");
-        setLiveVerdict("");
-        setAdvisorDone({});
-        setFinalTexts({});
-        setPeerReview("");
-        setVerdict("");
+        setPhase("conversation");
+        setFollowUpInput("");
         setOpenPanels({});
         setError(null);
-        setActiveSessionId(null);
+        setLive({}); setLiveRev(""); setLiveVerdict(""); setAdvisorDone({});
       }, []);
 
-      // ── Run a live council session ────────────────────────────────
-      const run = useCallback(async () => {
-        if (!q.trim() || isLoading) return;
-
-        setError(null);
-        setLive({}); setLiveRev(""); setLiveVerdict("");
-        setAdvisorDone({});
-        setFinalTexts({}); setPeerReview(""); setVerdict(""); setOpenPanels({});
+      // ── Reset to a blank canvas ──────────────────────────────────────
+      const handleNewCouncil = useCallback(() => {
+        setTurns([]);
+        setInitialQuestion("");
+        setFollowUpInput("");
+        setPhase("idle");
+        setActiveDbSessionId(null);
         setActiveSessionId(null);
+        setOpenPanels({});
+        setError(null);
+        setLive({}); setLiveRev(""); setLiveVerdict(""); setAdvisorDone({});
+      }, []);
+
+      // ── Core pipeline: executes one full council turn ────────────────
+      // Accepts the new prompt and all prior completed turns. The prior turns
+      // are serialized into a cached prefix block so each new turn costs only
+      // the delta in tokens rather than re-encoding the full thread history.
+      const executeCouncilTurn = useCallback(async (newPrompt, priorTurns) => {
+        const priorContext = buildPriorTurnsContext(priorTurns);
+
+        // The advisor question is framed differently for follow-ups so advisors
+        // explicitly build on the established conversation context.
+        const advisorQuestion = priorContext
+          ? `Prior conversation context is provided above. Continue the discussion.\n\nNew question: ${newPrompt}\n\nRespond from your perspective.`
+          : `Question for the council:\n\n---\n${newPrompt}\n---\n\nBe direct. Lean fully into your angle.`;
+
+        /* Phase 1: Five advisors in parallel ──────────────────────────
+           max_tokens:800 keeps each advisor tight and cost-efficient.
+           priorContext is the cached prefix so repeat calls on long threads
+           don't re-encode the same history tokens.                        */
+        setPhase("advisors");
+        setLive({}); setAdvisorDone({});
+        const collectedTexts = {};
+
+        await Promise.all(ADVISORS.map(({ id, system }) =>
+          collect(
+            system, advisorQuestion, apiKey, advisorModel,
+            full => { collectedTexts[id] = full; setLive(p => ({ ...p, [id]: full })); },
+            priorContext, // cached prefix — free on warm cache
+            800
+          ).then(() => setAdvisorDone(p => ({ ...p, [id]: true })))
+        ));
+
+        /* Phase 2: Consolidated peer review ───────────────────────────
+           The anonymous advisor block is appended to the prior context so
+           the cache covers the entire growing history in one shot.        */
+        setPhase("review");
+        setLiveRev("");
+        const shuffledAdvisors = [...ADVISORS].sort(() => Math.random() - 0.5);
+        const letterMap        = Object.fromEntries(shuffledAdvisors.map((a, i) => [String.fromCharCode(65 + i), a.id]));
+        const anonymousBlock   = Object.entries(letterMap).map(([l, id]) => `**Advisor ${l}:**\n${collectedTexts[id]}`).join("\n\n");
+        const reviewCachePrefix = priorContext ? `${priorContext}\n\n${anonymousBlock}` : anonymousBlock;
+
+        const peerReviewText = await collect(
+          "You are an impartial Council Analyst. Evaluate advisor responses precisely. No preamble.",
+          `Question: "${newPrompt}"\n\n1. Strongest response (letter + reason)\n2. Biggest blind spot\n3. Critical insight ALL missed\n4. Sharpest disagreement for Chairman\n\n200 words max.`,
+          apiKey, advisorModel,
+          full => setLiveRev(full),
+          reviewCachePrefix,
+          800
+        );
+
+        /* Phase 3: Chairman synthesis ─────────────────────────────────
+           The full accumulated transcript is cached. The optional diagram
+           instruction is appended only when the user's toggle is active.  */
+        setPhase("synthesis");
+        setLiveVerdict("");
+        const namedBlock    = ADVISORS.map(a => `**${a.name}:**\n${collectedTexts[a.id]}`).join("\n\n");
+        const fullTranscript = `${priorContext ? priorContext + "\n\n---\n\n" : ""}CURRENT QUESTION:\n${newPrompt}\n\nADVISOR RESPONSES:\n${namedBlock}\n\nPEER REVIEW:\n${peerReviewText}`;
+
+        const diagramInstruction = generateDiagrams
+          ? `\n\nIf a diagram would clarify your recommendation, append ONE Mermaid.js code block at the very end of your response:\n\n\`\`\`mermaid\n[diagram here]\n\`\`\`\n\nOnly include if it genuinely adds clarity.`
+          : "";
+
+        const synthesisPrompt = `Produce the verdict with exactly these five section headers:\n\n## Where the Council Agrees\n## Where the Council Clashes\n## Blind Spots the Council Caught\n## The Recommendation\n## The One Thing to Do First${diagramInstruction}`;
+
+        const rawVerdict = await collect(
+          CHAIRMAN_SYSTEM, synthesisPrompt, apiKey, model,
+          full => setLiveVerdict(full),
+          fullTranscript, // large cached block — grows cheaply with thread length
+          1500
+        );
+
+        const { verdictText, diagramCode } = splitVerdictAndDiagram(rawVerdict);
+
+        return { prompt: newPrompt, advisorTexts: collectedTexts, peerReview: peerReviewText, verdict: verdictText, diagramCode };
+      }, [apiKey, model, advisorModel, generateDiagrams]);
+
+      // ── Unified turn runner ──────────────────────────────────────────
+      // Handles both the first turn (creates a new DB session) and follow-up
+      // turns (appends to the existing DB session). The distinction is whether
+      // `turns` is empty when the run begins.
+      const runTurn = useCallback(async (newPrompt) => {
+        if (!newPrompt.trim() || isProcessing) return;
+        setError(null);
+        const priorTurns = turns; // snapshot at dispatch time
 
         try {
-          /* ── Phase 1: Advisors ──────────────────────────────────────
-             All five run in parallel. max_tokens:800 enforces a tight
-             ceiling — advisors are meant to be punchy, not exhaustive.   */
-          setPhase("advisors");
-          const councilQuestion = `Question for the council:\n\n---\n${q}\n---\n\nRespond from your perspective only. Be direct. Lean fully into your angle.`;
-          const collectedTexts  = {};
+          const completedTurn = await executeCouncilTurn(newPrompt, priorTurns);
+          const updatedTurns  = [...priorTurns, completedTurn];
+          setTurns(updatedTurns);
 
-          await Promise.all(ADVISORS.map(({ id, system }) =>
-            collect(
-              system,
-              councilQuestion,
-              apiKey,
-              advisorModel,  // Haiku when fast mode is active
-              full => {
-                collectedTexts[id] = full;
-                setLive(prev => ({ ...prev, [id]: full }));
-              },
-              null,
-              800            // Token ceiling keeps advisor output focused
-            ).then(() => setAdvisorDone(prev => ({ ...prev, [id]: true })))
-          ));
-          setFinalTexts({ ...collectedTexts });
-
-          /* ── Phase 2: Peer review ───────────────────────────────────
-             One consolidated call (not five) to minimize cost.
-             The anonymous advisor block is the cached prefix — on a warm
-             cache this entire block costs zero input tokens.              */
-          setPhase("review");
-          const shuffledAdvisors  = [...ADVISORS].sort(() => Math.random() - 0.5);
-          const letterMap         = Object.fromEntries(shuffledAdvisors.map((a, i) => [String.fromCharCode(65 + i), a.id]));
-          const anonymousBlock    = Object.entries(letterMap).map(([l, id]) => `**Advisor ${l}:**\n${collectedTexts[id]}`).join("\n\n");
-          const reviewInstruction = `Question: "${q}"\n\nAnalyze the five advisor responses above:\n1. Strongest response (letter + one-sentence reason)\n2. Biggest blind spot (letter + what it missed)\n3. Critical insight ALL responses missed\n4. The sharpest point of disagreement for the Chairman\n\n200 words max.`;
-
-          const peerReviewText = await collect(
-            "You are an impartial Council Analyst. Evaluate the five advisor responses with precision and rigor. No preamble.",
-            reviewInstruction,
-            apiKey,
-            advisorModel,   // Haiku when fast mode is active
-            full => setLiveRev(full),
-            anonymousBlock, // Cached prefix: entire advisor block
-            800
-          );
-          setPeerReview(peerReviewText);
-
-          /* ── Phase 3: Chairman synthesis ────────────────────────────
-             Full session transcript is cached as the leading content block.
-             The Chairman always uses the user's chosen quality model.      */
-          setPhase("synthesis");
-          const namedAdvisorBlock  = ADVISORS.map(a => `**${a.name}:**\n${collectedTexts[a.id]}`).join("\n\n");
-          const cachedTranscript   = `SESSION QUESTION:\n${q}\n\nADVISOR RESPONSES:\n\n${namedAdvisorBlock}\n\nCONSOLIDATED PEER REVIEW:\n${peerReviewText}`;
-          const synthesisInstruction = `Produce the verdict with exactly these five section headers:\n\n## Where the Council Agrees\n## Where the Council Clashes\n## Blind Spots the Council Caught\n## The Recommendation\n## The One Thing to Do First`;
-
-          const chairmanVerdict = await collect(
-            CHAIRMAN_SYSTEM,
-            synthesisInstruction,
-            apiKey,
-            model,              // User's selected quality model (never downgraded)
-            full => setLiveVerdict(full),
-            cachedTranscript,   // Cached: full transcript
-            1500
-          );
-
-          setVerdict(chairmanVerdict);
-
-          // Auto-save before setting phase to "done" so the sidebar list
-          // is already refreshed when the results view appears.
-          await persistSession({
-            prompt:       q,
-            advisorTexts: collectedTexts,
-            peerReview:   peerReviewText,
-            verdict:      chairmanVerdict,
-          }).catch(e => console.warn("Session auto-save failed silently:", e));
+          if (priorTurns.length === 0) {
+            const dbId = await createNewSession(completedTurn).catch(() => null);
+            setActiveDbSessionId(dbId);
+            setActiveSessionId(dbId);
+          } else if (activeDbSessionId) {
+            await appendTurnToSession(activeDbSessionId, completedTurn).catch(() => {});
+          }
 
           await refreshSessionList();
-          setPhase("done");
-
+          setPhase("conversation");
         } catch (e) {
           setError(e.message || "Something went wrong.");
-          setPhase("idle");
+          setPhase(priorTurns.length === 0 ? "idle" : "conversation");
         }
-      }, [q, isLoading, apiKey, model, advisorModel, refreshSessionList]);
+      }, [isProcessing, turns, activeDbSessionId, executeCouncilTurn, refreshSessionList]);
 
-      const parsedVerdict = useMemo(() => verdict ? parseVerdict(verdict) : null, [verdict]);
+      const handleInitialSubmit = useCallback(() => {
+        if (!initialQuestion.trim() || isProcessing) return;
+        runTurn(initialQuestion);
+      }, [initialQuestion, isProcessing, runTurn]);
 
-      const exportMarkdown = () => {
-        const md = [
-          `# Council Verdict\n\n**Question:** ${q}\n\n---\n`,
-          verdict,
-          `\n\n---\n\n## Advisor Transcripts\n`,
-          ...ADVISORS.map(a => `\n### ${a.name}\n${finalTexts[a.id] || ""}`),
-          `\n\n---\n\n## Peer Review\n\n${peerReview}`,
-        ].join("");
+      const handleFollowUpSubmit = useCallback(() => {
+        const text = followUpInput.trim();
+        if (!text || isProcessing) return;
+        setFollowUpInput(""); // clear immediately so the UX feels responsive
+        runTurn(text);
+      }, [followUpInput, isProcessing, runTurn]);
+
+      const exportMarkdown = useCallback(() => {
+        const md = turns.map((t, i) => [
+          i === 0 ? `# Council Session\n\n` : `\n---\n\n## Follow-up · Turn ${i + 1}\n\n`,
+          `**Question:** ${t.prompt}\n\n`,
+          t.verdict || "",
+          `\n\n### Advisor Transcripts\n`,
+          ...ADVISORS.map(a => `\n#### ${a.name}\n${t.advisorTexts[a.id] || ""}`),
+          `\n\n### Peer Review\n\n${t.peerReview || ""}`,
+        ].join("")).join("\n\n");
         const blob = new Blob([md], { type: "text/markdown" });
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement("a");
-        a.href = url; a.download = "council-verdict.md"; a.click();
+        a.href = url; a.download = "council-session.md"; a.click();
         URL.revokeObjectURL(url);
-      };
+      }, [turns]);
 
       return (
         <div className="app-shell">
 
-          {/* ── History sidebar ──────────────────────────────────── */}
           <HistorySidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
+            sessions={sessions} activeSessionId={activeSessionId}
             isOpen={sidebarOpen}
             onSelect={handleSelectSession}
             onNewCouncil={handleNewCouncil}
             onToggle={() => setSidebarOpen(v => !v)}
           />
 
-          {/* ── Main scrollable content ──────────────────────────── */}
           <div className="main-panel">
             <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 0 80px" }}>
 
               {showSettings && (
-                <SettingsPanel
-                  apiKey={apiKey} model={model} onModel={setModel}
+                <SettingsPanel apiKey={apiKey} model={model} onModel={setModel}
                   fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
                   onClearKey={() => { onClearKey(); setShowSettings(false); }}
-                  onClose={() => setShowSettings(false)}
-                />
+                  onClose={() => setShowSettings(false)} />
               )}
 
-              {/* ── Page header ───────────────────────────────────── */}
-              <div style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 36 }}>
+              {/* ── Page header ──────────────────────────────────────── */}
+              <div style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                  {/* Expand sidebar toggle — only visible when sidebar is hidden */}
                   {!sidebarOpen && (
-                    <button
-                      onClick={() => setSidebarOpen(true)}
-                      title="Show history"
-                      style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "none", border: "1px solid var(--bd)", borderRadius: 5, color: "var(--t3)", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }}
-                    >
+                    <button onClick={() => setSidebarOpen(true)} title="Show history"
+                      style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "none", border: "1px solid var(--bd)", borderRadius: 5, color: "var(--t3)", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
                       <i className="ti ti-layout-sidebar-left-expand" style={{ fontSize: 14 }} />
                     </button>
                   )}
                   <div>
                     <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Sai's Council</p>
-                    <h1 style={{ fontFamily: "var(--display)", fontSize: 60, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 8 }}>THE COUNCIL</h1>
+                    <h1 style={{ fontFamily: "var(--display)", fontSize: 58, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 8 }}>THE COUNCIL</h1>
                     <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, maxWidth: "50ch" }}>
                       Five independent advisors. Anonymous peer review. One verdict.<br />
-                      Each advisor runs in its own context — no perspective bleed.
+                      Multi-turn conversations — each follow-up builds on the prior thread.
                     </p>
                     <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 8 }}>
                       Derived from{" "}
-                      <a href="https://karpathy.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--t3)", textDecoration: "underline", textUnderlineOffset: 3 }}>
-                        Andrej Karpathy
-                      </a>'s LLM Council concept
+                      <a href="https://karpathy.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--t3)", textDecoration: "underline", textUnderlineOffset: 3 }}>Andrej Karpathy</a>'s LLM Council concept
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setShowSettings(true)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer", flexShrink: 0 }}
-                >
+                <button onClick={() => setShowSettings(true)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer", flexShrink: 0 }}>
                   <i className="ti ti-settings" style={{ fontSize: 14 }} />
                   {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)}
                 </button>
@@ -934,28 +1116,22 @@
 
               <div style={{ padding: "0 32px" }}>
 
-                {/* ── Idle / Done: prompt input ─────────────────────── */}
-                {(phase === "idle" || phase === "done") && (
+                {/* ── Initial prompt input (first turn only) ─────────── */}
+                {phase === "idle" && turns.length === 0 && (
                   <div className="fade-up">
-                    {phase === "done" && (
-                      <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>New session</p>
-                    )}
-
                     <textarea
-                      value={q}
-                      onChange={e => setQ(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }}
+                      value={initialQuestion}
+                      onChange={e => setInitialQuestion(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleInitialSubmit(); }}
                       placeholder="What decision should the council pressure-test? Be specific — context sharpens the output."
-                      style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)" }}
+                      style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s" }}
                     />
-
                     <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 28px" }}>
-                      <button
-                        onClick={run} disabled={!q.trim()}
-                        style={{ flex: 1, padding: "13px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !q.trim() ? 0.3 : 1, transition: "opacity .15s" }}
-                      >
+                      <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()}
+                        style={{ flex: 1, padding: "13px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !initialQuestion.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
                         CONVENE THE COUNCIL
                       </button>
+                      <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
                       <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
                     </div>
 
@@ -965,11 +1141,11 @@
                       </div>
                     )}
 
-                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>The five advisors</p>
+                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>The five advisors</p>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       {ADVISORS.map((a, i) => (
-                        <div key={a.id} style={{ gridColumn: i === 4 ? "span 2" : undefined, padding: "12px 16px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <div key={a.id} style={{ gridColumn: i === 4 ? "span 2" : undefined, padding: "12px 14px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                             <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
                             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
                           </div>
@@ -980,14 +1156,30 @@
                   </div>
                 )}
 
-                {/* ── Loading phases ────────────────────────────────── */}
-                {isLoading && (
-                  <div>
+                {/* ── Completed conversation turns ──────────────────── */}
+                {turns.length > 0 && (
+                  <ConversationThread
+                    turns={turns}
+                    openPanels={openPanels}
+                    onTogglePanel={togglePanel}
+                  />
+                )}
+
+                {/* ── Active turn loading state ─────────────────────── */}
+                {isProcessing && (
+                  <div className="fade-up" style={{ marginTop: turns.length > 0 ? 28 : 0 }}>
+                    {turns.length > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, paddingTop: 4, borderTop: "1px solid var(--bd)" }}>
+                        <div className="spin" style={{ width: 10, height: 10, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%", flexShrink: 0 }} />
+                        <span className="tag" style={{ color: "var(--amber)", fontSize: 9 }}>Follow-up · Turn {turns.length + 1}</span>
+                      </div>
+                    )}
+
                     <PhaseStepper phase={phase} />
 
                     {phase === "advisors" && (
                       <div>
-                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Advisors deliberating</p>
+                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisors deliberating</p>
                         {ADVISORS.map(a => (
                           <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors" />
                         ))}
@@ -996,15 +1188,15 @@
 
                     {phase === "review" && (
                       <div>
-                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Consolidated peer review</p>
-                        <div style={{ padding: "14px 18px", background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: liveRev ? 10 : 0 }}>
-                            <i className="ti ti-analyze pulse" style={{ fontSize: 14, color: "var(--purple)" }} />
+                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Consolidated peer review</p>
+                        <div style={{ padding: "13px 16px", background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: liveRev ? 8 : 0 }}>
+                            <i className="ti ti-analyze pulse" style={{ fontSize: 13, color: "var(--purple)" }} />
                             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>Council Analyst</span>
                             <span className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>cross-examining all five</span>
                           </div>
                           {liveRev && (
-                            <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 90, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
+                            <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 80, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
                               {liveRev}<span style={{ animation: "blink .7s step-end infinite", color: "var(--purple)" }}>▋</span>
                             </div>
                           )}
@@ -1014,13 +1206,13 @@
 
                     {phase === "synthesis" && (
                       <div>
-                        <p className="tag" style={{ color: "var(--amber)", marginBottom: 12 }}>Chairman synthesizing verdict</p>
-                        <div style={{ padding: 24, minHeight: 120, background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
+                        <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Chairman synthesizing verdict</p>
+                        <div style={{ padding: 20, minHeight: 100, background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
                           {liveVerdict
                             ? <><Md text={liveVerdict} /><span style={{ animation: "blink .7s step-end infinite", color: "var(--amber)" }}>▋</span></>
-                            : <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                <div className="spin" style={{ width: 14, height: 14, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%", flexShrink: 0 }} />
-                                <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>Deliberating…</span>
+                            : <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div className="spin" style={{ width: 13, height: 13, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%", flexShrink: 0 }} />
+                                <span className="tag" style={{ color: "var(--amber)", fontSize: 9 }}>Deliberating…</span>
                               </div>}
                         </div>
                       </div>
@@ -1028,91 +1220,43 @@
                   </div>
                 )}
 
-                {/* ── Results ───────────────────────────────────────── */}
-                {phase === "done" && parsedVerdict && (
-                  <div className="fade-up">
+                {/* ── Follow-up input and export (conversation phase) ── */}
+                {phase === "conversation" && turns.length > 0 && (
+                  <div className="follow-up-section fade-up">
+                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Continue the conversation</p>
+                    <textarea
+                      value={followUpInput}
+                      onChange={e => setFollowUpInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleFollowUpSubmit(); }}
+                      placeholder="Ask a follow-up, push deeper on any point, or request a different angle…"
+                      style={{ width: "100%", minHeight: 80, padding: "14px 16px", fontSize: 14, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s" }}
+                    />
 
-                    {/* Session question echo */}
-                    <div style={{ padding: "16px 20px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8, display: "flex", gap: 12, alignItems: "flex-start" }}>
-                      <div style={{ flex: 1 }}>
-                        <p className="tag" style={{ color: "var(--amber)", marginBottom: 8 }}>Session question</p>
-                        <p style={{ fontSize: 15, color: "var(--t2)", lineHeight: 1.65, fontStyle: "italic", margin: 0 }}>"{q}"</p>
+                    {error && (
+                      <div style={{ padding: "10px 14px", margin: "8px 0", background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
+                        <i className="ti ti-alert-circle" style={{ marginRight: 7 }} />{error}
                       </div>
-                      <CopyBtn text={q} style={{ flexShrink: 0, marginTop: 2 }} />
+                    )}
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                      <button onClick={handleFollowUpSubmit} disabled={!followUpInput.trim()}
+                        style={{ flex: 1, padding: "11px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !followUpInput.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
+                        FOLLOW UP
+                      </button>
+                      <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
+                      <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
                     </div>
 
-                    <Divider label="Chairman's verdict" />
-
-                    <VerdictSection label="Where the council agrees"  icon="ti-check"          accent="var(--green)"  tint="var(--green-tint)"  ring="var(--green-ring)"  text={parsedVerdict.agrees}  />
-                    <VerdictSection label="Where the council clashes" icon="ti-arrows-exchange" accent="var(--red)"    tint="var(--red-tint)"    ring="var(--red-ring)"    text={parsedVerdict.clashes} />
-                    <VerdictSection label="Blind spots caught"        icon="ti-eye-off"         accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" text={parsedVerdict.blind}   />
-
-                    {parsedVerdict.rec && (
-                      <div style={{ marginBottom: 16 }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <i className="ti ti-star" style={{ fontSize: 13, color: "var(--amber)" }} />
-                            <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>The recommendation</span>
-                          </div>
-                          <CopyBtn text={parsedVerdict.rec} />
-                        </div>
-                        <div style={{ padding: "20px 22px", background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
-                          <Md text={parsedVerdict.rec} />
-                        </div>
-                      </div>
-                    )}
-
-                    {parsedVerdict.first && (
-                      <div style={{ marginBottom: 36 }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <i className="ti ti-arrow-narrow-right" style={{ fontSize: 13, color: "var(--green)" }} />
-                            <span className="tag" style={{ color: "var(--green)", fontSize: 10 }}>The one thing to do first</span>
-                          </div>
-                          <CopyBtn text={parsedVerdict.first} />
-                        </div>
-                        <div style={{ padding: "22px 24px", background: "var(--green-tint)", border: "1px solid var(--green-ring)", borderRadius: 8 }}>
-                          <p style={{ fontFamily: "var(--display)", fontSize: 28, letterSpacing: 2, color: "var(--green)", lineHeight: 1.3, margin: 0 }}>{parsedVerdict.first}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {parsedVerdict.raw && (
-                      <div style={{ padding: "20px 22px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
-                        <Md text={parsedVerdict.raw} />
-                      </div>
-                    )}
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                      <button onClick={exportMarkdown} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--t2)", background: "var(--bg3)", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
+                    <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+                      <button onClick={exportMarkdown}
+                        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--t2)", background: "var(--bg3)", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
                         <i className="ti ti-download" style={{ fontSize: 12 }} />Export markdown
                       </button>
+                      <button onClick={handleNewCouncil}
+                        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--t3)", background: "transparent", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
+                        <i className="ti ti-plus" style={{ fontSize: 12 }} />New council
+                      </button>
                     </div>
-
-                    <Divider label="Full transcripts" />
-
-                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisor responses</p>
-                    <div style={{ marginBottom: 24 }}>
-                      {ADVISORS.map(a => (
-                        <Accordion key={a.id} label={a.name} sub={a.tagline} accent={a.accent} tint={a.tint} ring={a.ring} isOpen={!!openPanels[a.id]} onToggle={() => togglePanel(a.id)}>
-                          {finalTexts[a.id] || ""}
-                        </Accordion>
-                      ))}
-                    </div>
-
-                    {peerReview && (
-                      <Accordion label="Consolidated peer review" sub="cross-examination" accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" isOpen={!!openPanels.rev} onToggle={() => togglePanel("rev")}>
-                        {peerReview}
-                      </Accordion>
-                    )}
-
-                    <button
-                      onClick={handleNewCouncil}
-                      style={{ width: "100%", padding: "13px 20px", marginTop: 20, fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "transparent", border: "1px solid var(--bd2)", color: "var(--t2)", borderRadius: 6, cursor: "pointer", transition: "border-color .15s, color .15s" }}
-                    >
-                      NEW SESSION
-                    </button>
-
                   </div>
                 )}
 
@@ -1124,7 +1268,7 @@
       );
     }
 
-    /* ── APP ROOT ─────────────────────────────────────────────────── */
+    /* ── APP ROOT ───────────────────────────────────────────────────── */
 
     function App() {
       const [apiKey, setApiKey] = useState(() => localStorage.getItem("council-key") || "");
