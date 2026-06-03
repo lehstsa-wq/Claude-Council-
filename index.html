@@ -238,8 +238,10 @@
     // Token ceilings per phase.
     // advisor: target ~130 tokens (100 words); 200 is a 1.5× buffer.
     // review:  target ~130 tokens (100 words); 160 is a 1.2× buffer.
-    // chairman: Haiku gets 1000 (room for diagram); Sonnet/Opus get 800.
-    const TOKEN_BUDGETS = { advisor: 200, review: 160, chairmanHaiku: 1000, chairmanPremium: 800 };
+    // chairman: raised to allow full plans and step-by-step instructions.
+    //   Haiku  1800 ≈ 1350 words — enough for a detailed multi-step plan.
+    //   Premium 1400 ≈ 1050 words — Sonnet/Opus write more densely.
+    const TOKEN_BUDGETS = { advisor: 200, review: 160, chairmanHaiku: 1800, chairmanPremium: 1400 };
 
     // Chars of each advisor response forwarded to the peer reviewer and chairman.
     // Haiku is cheap — pass full text. Sonnet/Opus are expensive — 180-char
@@ -262,8 +264,9 @@
       const reviewInputToks  = advisorCount * 45 + 100;
       // Chairman gets compressed input for non-Haiku; full block for Haiku
       const chairmanInToks   = isHaikuChairman ? (advisorCount * 130 + 350) : (advisorCount * 25 + 250);
-      // Diagrams add ~150 tokens to chairman output (Mermaid block)
-      const chairmanOutToks  = (isHaikuChairman ? 600 : 450) + (diagramOn ? 150 : 0);
+      // Chairman output estimate raised to reflect deeper plan/instruction
+      // output. Diagrams add ~150 tokens on top.
+      const chairmanOutToks  = (isHaikuChairman ? 1100 : 900) + (diagramOn ? 150 : 0);
       const phase1 = (advisorCount * 180 * advisorRate.in + advisorCount * 130 * advisorRate.out) / 1e6;
       const phase2 = peerReviewOn ? (reviewInputToks * advisorRate.in + 130 * advisorRate.out) / 1e6 : 0;
       const phase3 = (chairmanInToks * chairmanRate.in + chairmanOutToks * chairmanRate.out) / 1e6;
@@ -1172,9 +1175,12 @@
           ? `\n\nREQUIRED: You MUST append exactly one Mermaid.js diagram at the very end of your response. This is mandatory. Use this exact format:\n\n\`\`\`mermaid\n[your diagram here]\n\`\`\`\n\nChoose the diagram type that best represents the decision structure: flowchart for decisions/processes, graph LR for relationships, sequenceDiagram for timelines, mindmap for hierarchies. The diagram must directly visualize the core recommendation.`
           : "";
 
-        // Each section gets an explicit instruction so the chairman produces
-        // specific, position-taking content rather than neutral summaries.
-        const synthesisPrompt = `Produce a precise, actionable verdict using exactly these five section headers. Each section must be specific — name things, take positions, commit to claims.\n\n## Where the Council Agrees\nState the consensus as a concrete claim. Then say in one sentence whether that consensus is correct or dangerously incomplete.\n\n## Where the Council Clashes\nName the specific disagreement. Take a side: say which advisor is right and exactly why in one sentence. Do not present both sides without resolving them.\n\n## Blind Spots the Council Caught\nName the single most important thing from the peer review that changes the picture. One specific insight, not a list.\n\n## The Recommendation\nOne directive. Address the original question directly. Actionable within 48 hours. No options, no hedging.\n\n## The One Thing to Do First\nOne sentence. One specific action. Concrete enough to execute today.${diagramInstruction}`;
+        // The Recommendation section explicitly invites full plans and
+        // step-by-step instructions — "do not compress for brevity" removes the
+        // implicit length pressure that was truncating actionable content.
+        // The other sections stay sharp and position-taking; only the
+        // Recommendation expands to match the depth the question warrants.
+        const synthesisPrompt = `Produce an in-depth, actionable verdict using exactly these five section headers. Name things. Take positions. Commit to claims.\n\n## Where the Council Agrees\nState the consensus as a concrete claim. Say in one sentence whether that consensus is correct or dangerously incomplete.\n\n## Where the Council Clashes\nName the specific disagreement. Take a side — say which advisor is right and exactly why. Resolve the tension; do not present both sides neutrally.\n\n## Blind Spots the Council Caught\nName the single most important insight from the peer review that changes the picture.\n\n## The Recommendation\nProduce a complete, detailed recommendation. Include step-by-step instructions, a phased plan, or a decision framework — whatever the complexity of the question demands. Name specific actions, owners, sequencing, and trade-offs. Do not compress for brevity. If the question requires a full plan, write the full plan.\n\n## The One Thing to Do First\nThe single highest-leverage first action. Two to three sentences: what to do, why it unlocks everything else, and what done looks like.${diagramInstruction}`;
 
         const rawVerdict = await collect(
           CHAIRMAN_SYSTEM, synthesisPrompt, apiKey, model,
