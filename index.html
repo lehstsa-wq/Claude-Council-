@@ -236,12 +236,13 @@
     const FAST_MODEL = "claude-haiku-4-5-20251001";
 
     // Token ceilings per phase.
-    // advisor: target ~130 tokens (100 words); 200 is a 1.5× buffer.
-    // review:  target ~130 tokens (100 words); 160 is a 1.2× buffer.
+    // advisor: "100 words max" ≈ 130 tokens; ceiling at 120 physically prevents
+    //   overruns — LLMs fill available space, so a loose ceiling causes cost bloat.
+    // review:  ~100 words target; 150 gives a small buffer.
     // chairman: raised to allow full plans and step-by-step instructions.
     //   Haiku  1800 ≈ 1350 words — enough for a detailed multi-step plan.
     //   Premium 1400 ≈ 1050 words — Sonnet/Opus write more densely.
-    const TOKEN_BUDGETS = { advisor: 200, review: 160, chairmanHaiku: 1800, chairmanPremium: 1400 };
+    const TOKEN_BUDGETS = { advisor: 120, review: 150, chairmanHaiku: 1800, chairmanPremium: 1400 };
 
     // Chars of each advisor response forwarded to the peer reviewer and chairman.
     // Haiku is cheap — pass full text. Sonnet/Opus are expensive — 180-char
@@ -253,9 +254,9 @@
     // panel live badge reflects every combination accurately.
     function estimateCostPerTurn(chairmanModel, fastAdvisorsOn, advisorCount = 5, peerReviewOn = true, diagramOn = false) {
       const RATES = {
-        "claude-haiku-4-5-20251001": { in: 0.80,  out: 4.00  },
+        "claude-haiku-4-5-20251001": { in: 1.00,  out: 5.00  },  // corrected from 0.80/4.00
         "claude-sonnet-4-6":         { in: 3.00,  out: 15.00 },
-        "claude-opus-4-7":           { in: 15.00, out: 75.00 },
+        "claude-opus-4-7":           { in: 5.00,  out: 25.00 },  // corrected from 15.00/75.00
       };
       const isHaikuChairman  = chairmanModel === FAST_MODEL;
       const advisorRate      = fastAdvisorsOn ? RATES[FAST_MODEL] : (RATES[chairmanModel] || RATES[FAST_MODEL]);
@@ -267,54 +268,54 @@
       // Chairman output estimate raised to reflect deeper plan/instruction
       // output. Diagrams add ~150 tokens on top.
       const chairmanOutToks  = (isHaikuChairman ? 1100 : 900) + (diagramOn ? 150 : 0);
-      const phase1 = (advisorCount * 180 * advisorRate.in + advisorCount * 130 * advisorRate.out) / 1e6;
+      // Output estimate uses 110 tokens (just under the 120 hard ceiling) since
+      // the model fills to the cap — 130 was optimistic when ceiling was loose.
+      const phase1 = (advisorCount * 180 * advisorRate.in + advisorCount * 110 * advisorRate.out) / 1e6;
       const phase2 = peerReviewOn ? (reviewInputToks * advisorRate.in + 130 * advisorRate.out) / 1e6 : 0;
       const phase3 = (chairmanInToks * chairmanRate.in + chairmanOutToks * chairmanRate.out) / 1e6;
       return phase1 + phase2 + phase3;
     }
 
+    // Each advisor's unique instructions live in `lens`, not `system`.
+    // All five share SHARED_ADVISOR_SYSTEM so calls 2–5 in each turn get
+    // a cache hit on the system block (10% of normal input cost per call).
     const ADVISORS = [
       {
         id: "contrarian",      name: "The Contrarian",    accent: "var(--red)",
         tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-sword",
         tagline: "Hunts for fatal flaws",
-        // Ask for the specific failure mode, not just "there's a flaw" — forces
-        // the model to commit to a named mechanism rather than vague criticism.
-        system: "You are The Contrarian on an LLM Council. Your job: find the single most dangerous assumption and name the specific failure mode it creates. What breaks first, and exactly why? Don't list concerns — commit to the one critical flaw. Be surgical. No preamble.",
+        lens: "Find the single most dangerous assumption and name the specific failure mode it creates. What breaks first, and exactly why? Don't list concerns — commit to the one critical flaw. Be surgical.",
       },
       {
         id: "firstprinciples", name: "First Principles",  accent: "var(--purple)",
         tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-atom",
         tagline: "Questions the question itself",
-        // Push to identify which specific assumption is load-bearing, not just
-        // "let's question assumptions" — forces a concrete epistemic challenge.
-        system: "You are The First Principles Thinker on an LLM Council. Ignore the surface question. What is actually being decided? Identify the one load-bearing assumption the question is built on. Is that assumption true? If it isn't, what should the real question be? No preamble.",
+        lens: "Ignore the surface question. What is actually being decided? Identify the one load-bearing assumption it is built on. Is that assumption true? If not, what should the real question be?",
       },
       {
         id: "expansionist",    name: "The Expansionist",  accent: "var(--green)",
         tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-maximize",
         tagline: "Finds hidden upside",
-        // Demand specific opportunities, not optimistic generalities — the
-        // "non-obvious" framing forces naming something others would overlook.
-        system: "You are The Expansionist on an LLM Council. Find the non-obvious upside. Not the obvious win — the asymmetric bet this unlocks. What adjacent move does success create? What becomes possible that wasn't before? Name it specifically, don't describe it in generalities. No preamble.",
+        lens: "Find the non-obvious upside. Not the obvious win — the asymmetric bet this unlocks. What adjacent move does success create? What becomes possible that wasn't before? Name it specifically.",
       },
       {
         id: "outsider",        name: "The Outsider",      accent: "var(--amber)",
         tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-eye",
         tagline: "Zero context, clear eyes",
-        // Require pointing at specific confusing or undefined terms — avoids
-        // the generic "I'd want more context" response.
-        system: "You are The Outsider on an LLM Council. You have zero prior context — react only to what is written. Point to the specific thing that is confusing, undefined, or assumed without justification. What would a sharp generalist ask walking in cold that the insiders aren't asking? No preamble.",
+        lens: "You have zero prior context — react only to what is written. Point to the specific thing that is confusing, undefined, or assumed without justification. What would a sharp generalist ask walking in cold?",
       },
       {
         id: "executor",        name: "The Executor",      accent: "var(--blue)",
         tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-bolt",
         tagline: "What do you do Monday?",
-        // Demand named actors and a timeline — prevents the executor from
-        // producing strategic advice dressed up as operational guidance.
-        system: "You are The Executor on an LLM Council. Skip strategy entirely. Give the operational path: what are the first three concrete actions, who does each one, and by when? If the answer can't be acted on this week it's too abstract. No preamble.",
+        lens: "Skip strategy. Give the operational path: the first three concrete actions, who does each one, and by when. If it can't be acted on this week it's too abstract.",
       },
     ];
+
+    // One shared system prompt for all five advisors. Identical system text
+    // across all five parallel calls means calls 2–5 pay only 10% of the input
+    // cost for the system block (cache hit after the first call writes it).
+    const SHARED_ADVISOR_SYSTEM = "You are an advisor on an LLM Council. Your analytical lens is specified in the message. Be direct and specific — name things, commit to claims, avoid generalities. No preamble.";
 
     // The chairman is a decision-maker, not a reporter. The system prompt
     // pushes them to take positions and produce non-obvious synthesis rather
@@ -1099,9 +1100,11 @@
         // The question wrapper pushes advisors toward specificity rather than
         // generic commentary. "Name things" is deliberate — it forces commitment
         // to concrete claims rather than hedged observations.
-        const advisorQuestion = priorContext
-          ? `Prior context above. Follow-up question: ${newPrompt}\n\nBuild only on what's new — no repetition of prior turns. Apply your distinct lens. Name specific things.`
-          : `Question for the council:\n\n---\n${newPrompt}\n---\n\nApply your distinct lens. Name specific things — failure modes, opportunities, actions, contradictions. No generic advice.`;
+        // The base question. Each advisor's lens is prepended per-call below
+        // so the shared system prompt can be cached across all five calls.
+        const baseQuestion = priorContext
+          ? `Prior context above. Follow-up question: ${newPrompt}\n\nBuild only on what's new — no repetition. Name specific things.`
+          : `Question for the council:\n\n---\n${newPrompt}\n---\n\nName specific things — failure modes, opportunities, actions, contradictions. No generic advice.`;
 
         /* Phase 1: Active advisors in parallel ────────────────────────
            Sliced to `advisorCount` so users can trade depth for cost.
@@ -1112,13 +1115,18 @@
         const collectedTexts = {};
         const activeAdvisors = ADVISORS.slice(0, advisorCount);
 
-        await Promise.all(activeAdvisors.map(({ id, system }) =>
+        // Using SHARED_ADVISOR_SYSTEM for all five calls so calls 2–5 get a
+        // system-block cache hit. Each advisor's lens is injected into the user
+        // message to preserve the distinct analytical perspective.
+        await Promise.all(activeAdvisors.map(advisor =>
           collect(
-            system, advisorQuestion, apiKey, advisorModel,
-            full => { collectedTexts[id] = full; setLive(p => ({ ...p, [id]: full })); },
+            SHARED_ADVISOR_SYSTEM,
+            `Your lens: ${advisor.lens}\n\n${baseQuestion}`,
+            apiKey, advisorModel,
+            full => { collectedTexts[advisor.id] = full; setLive(p => ({ ...p, [advisor.id]: full })); },
             priorContext,
             TOKEN_BUDGETS.advisor
-          ).then(() => setAdvisorDone(p => ({ ...p, [id]: true })))
+          ).then(() => setAdvisorDone(p => ({ ...p, [advisor.id]: true })))
         ));
 
         /* Phase 2: Consolidated peer review (optional) ────────────────
