@@ -8,6 +8,8 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <!-- Dexie: IndexedDB wrapper for persistent session history -->
+  <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.4.0/dist/tabler-icons.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rubik:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
   <style>
@@ -38,9 +40,10 @@
       --blue:         oklch(65% 0.14 232);
       --blue-tint:    oklch(65% 0.14 232 / 0.08);
       --blue-ring:    oklch(65% 0.14 232 / 0.25);
-      --display: 'Bebas Neue', Impact, sans-serif;
-      --sans:    'Rubik', system-ui, sans-serif;
-      --mono:    'Fira Code', 'Courier New', monospace;
+      --display:      'Bebas Neue', Impact, sans-serif;
+      --sans:         'Rubik', system-ui, sans-serif;
+      --mono:         'Fira Code', 'Courier New', monospace;
+      --sidebar-w:    260px;
     }
 
     html { scroll-behavior: smooth; }
@@ -48,9 +51,11 @@
     textarea, input, button { font-family: inherit; }
     button { cursor: pointer; }
 
-    ::-webkit-scrollbar { width: 3px; }
+    /* Subtle scrollbars app-wide */
+    ::-webkit-scrollbar       { width: 3px; height: 3px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--t3); }
 
     @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
     @keyframes spin   { to { transform: rotate(360deg); } }
@@ -61,6 +66,7 @@
     .spin     { animation: spin .85s linear infinite; }
     .pulse    { animation: pulse 1.6s ease infinite; }
 
+    /* Markdown prose */
     .md { font-size: 14px; line-height: 1.75; color: var(--t1); }
     .md p { margin-bottom: .6em; }
     .md p:last-child { margin-bottom: 0; }
@@ -76,16 +82,142 @@
     .md blockquote { padding-left: 12px; border-left: 1px solid var(--bd2); color: var(--t2); margin-bottom: .6em; font-style: italic; }
     .md a { color: var(--amber); text-decoration: none; }
 
-    .tag { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+    .tag    { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+
+    /* ── Two-panel app shell ───────────────────────────────────── */
+    .app-shell {
+      display: flex;
+      min-height: 100dvh;
+    }
+
+    /* ── History sidebar ───────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      flex-shrink: 0;
+      background: var(--bg2);
+      border-right: 1px solid var(--bd);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100dvh;
+      overflow: hidden;
+      transition: width 0.22s ease-in-out, opacity 0.22s ease-in-out, border-color 0.22s;
+    }
+    .sidebar.is-collapsed {
+      width: 0;
+      opacity: 0;
+      border-color: transparent;
+      pointer-events: none;
+    }
+
+    .sidebar__head {
+      padding: 18px 14px 14px;
+      border-bottom: 1px solid var(--bd);
+      flex-shrink: 0;
+    }
+
+    .sidebar__scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 8px 24px;
+    }
+
+    /* Individual session cards in the sidebar list */
+    .session-card {
+      padding: 9px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 2px;
+      border: 1px solid transparent;
+      transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out;
+    }
+    .session-card:hover { background: var(--bg3); border-color: var(--bd); }
+    .session-card.is-active { background: var(--amber-tint); border-color: var(--amber-ring); }
+
+    .session-card__title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--t1);
+      line-height: 1.4;
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-card__time {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--t3);
+    }
+
+    /* New Council button in sidebar */
+    .new-council-btn {
+      width: 100%;
+      padding: 9px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--amber-tint);
+      border: 1px solid var(--amber-ring);
+      border-radius: 6px;
+      color: var(--amber);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s ease-in-out, opacity 0.15s;
+    }
+    .new-council-btn:hover { background: oklch(72% 0.16 65 / 0.18); }
+
+    /* Sidebar collapse / expand toggle */
+    .sidebar-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: none;
+      border: none;
+      border-radius: 5px;
+      color: var(--t3);
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+    .sidebar-toggle:hover { color: var(--t1); background: var(--bg3); }
+
+    /* ── Main scrollable content area ─────────────────────────── */
+    .main-panel {
+      flex: 1;
+      min-width: 0;
+      overflow-y: auto;
+      height: 100dvh;
+    }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel" data-presets="react">
-    const { useState, useCallback, useEffect, useMemo } = React;
+    const { useState, useCallback, useEffect, useRef, useMemo } = React;
 
-    /* ── CONSTANTS ────────────────────────────────────────────── */
+    /* ── LOCAL DATABASE ───────────────────────────────────────────────
+       Dexie wraps IndexedDB with a promise API. Sessions are stored
+       permanently in the browser so the user can replay any past
+       council verdict without making a new API call.                    */
+    const db = new Dexie("SaiCouncilDB");
+    db.version(1).stores({
+      sessions: "++id, timestamp, title",
+    });
+
+    async function persistSession({ prompt, advisorTexts, peerReview, verdict }) {
+      const title = prompt.trim().slice(0, 35) + (prompt.trim().length > 35 ? "…" : "");
+      return db.sessions.add({ title, timestamp: Date.now(), prompt, advisorTexts, peerReview, verdict });
+    }
+
+    /* ── CONSTANTS ────────────────────────────────────────────────── */
 
     const MODELS = [
       { id: "claude-opus-4-7",           label: "Opus 4.7",   sub: "Highest quality" },
@@ -93,50 +225,50 @@
       { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5",  sub: "Fastest · cheapest" },
     ];
 
-    // Lever 3: model tiering — advisors + review use fast model, synthesis uses selected model
+    // When Fast Advisors is on, phases 1–2 run on Haiku; only the Chairman uses
+    // the user's selected model. This cuts per-session cost by ~73%.
     const FAST_MODEL = "claude-haiku-4-5-20251001";
 
     const ADVISORS = [
       {
-        id: "contrarian",     name: "The Contrarian",       accent: "var(--red)",
-        tint: "var(--red-tint)",   ring: "var(--red-ring)",     icon: "ti-sword",
+        id: "contrarian",      name: "The Contrarian",     accent: "var(--red)",
+        tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-sword",
         tagline: "Hunts for fatal flaws",
-        // Lever 1: tightened to 100-word target
         system: "You are The Contrarian on an LLM Council. Find the fatal flaw. Be direct, unsparing. 100 words max. No preamble.",
       },
       {
-        id: "firstprinciples", name: "First Principles",    accent: "var(--purple)",
+        id: "firstprinciples", name: "First Principles",   accent: "var(--purple)",
         tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-atom",
         tagline: "Questions the question itself",
         system: "You are The First Principles Thinker on an LLM Council. Strip assumptions, rebuild from scratch. Is the question itself wrong? 100 words max. No preamble.",
       },
       {
-        id: "expansionist",   name: "The Expansionist",     accent: "var(--green)",
-        tint: "var(--green-tint)", ring: "var(--green-ring)", icon: "ti-maximize",
+        id: "expansionist",    name: "The Expansionist",   accent: "var(--green)",
+        tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-maximize",
         tagline: "Finds hidden upside",
         system: "You are The Expansionist on an LLM Council. Find the upside everyone misses. What's bigger? What adjacent opportunity hides here? 100 words max. No preamble.",
       },
       {
-        id: "outsider",       name: "The Outsider",         accent: "var(--amber)",
-        tint: "var(--amber-tint)", ring: "var(--amber-ring)", icon: "ti-eye",
+        id: "outsider",        name: "The Outsider",       accent: "var(--amber)",
+        tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-eye",
         tagline: "Zero context, clear eyes",
         system: "You are The Outsider on an LLM Council. No context about this person or field. What's obvious to them but confusing to everyone else? 100 words max. No preamble.",
       },
       {
-        id: "executor",       name: "The Executor",         accent: "var(--blue)",
-        tint: "var(--blue-tint)", ring: "var(--blue-ring)", icon: "ti-bolt",
+        id: "executor",        name: "The Executor",       accent: "var(--blue)",
+        tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-bolt",
         tagline: "What do you do Monday?",
         system: "You are The Executor on an LLM Council. Fastest path to done. What do you do Monday morning, specifically? 100 words max. No preamble.",
       },
     ];
 
-    const CHAIRMAN = "You are the Chairman of an LLM Council. Synthesize five advisor perspectives and peer reviews into a definitive verdict. Be direct. Do not hedge. Weigh disagreements carefully. The verdict should be more insightful than any single advisor.";
+    const CHAIRMAN_SYSTEM = "You are the Chairman of an LLM Council. Synthesize five advisor perspectives and peer reviews into a definitive verdict. Be direct. Do not hedge. Weigh disagreements carefully. The verdict should be more insightful than any single advisor.";
 
-    /* ── STREAMING ────────────────────────────────────────────── */
+    /* ── STREAMING ────────────────────────────────────────────────── */
 
-    // Builds a message body that caches `cachedText` (must be ≥1024 tokens) as
-    // the leading user content block, then appends `tailText` uncached.
-    // When cachedText is null, sends a plain string message (no caching).
+    // Builds the messages array. When cachedText is provided it becomes the
+    // first content block marked ephemeral — Anthropic reuses it across calls
+    // within the same session window, giving a meaningful cache discount.
     function buildMessages(user, cachedText) {
       if (!cachedText) return [{ role: "user", content: user }];
       return [{
@@ -148,22 +280,25 @@
       }];
     }
 
-    async function* streamClaude(system, user, apiKey, model, cachedText) {
-      const messages = buildMessages(user, cachedText);
+    async function* streamClaude(system, user, apiKey, model, cachedText, maxTokens = 1500) {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
-          // Enables prompt caching + 1-hour extended TTL
+          // Enables prompt caching + 1-hour extended TTL for cached blocks
           "anthropic-beta": "prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11",
           "anthropic-dangerous-direct-browser-access": "true",
         },
         body: JSON.stringify({
-          model, max_tokens: 1500, stream: true,
+          model,
+          max_tokens: maxTokens,
+          stream: true,
+          // cache_control on the system block so this instruction is reused
+          // across all five parallel advisor calls — saves repeated encoding.
           system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-          messages,
+          messages: buildMessages(user, cachedText),
         }),
       });
       if (!res.ok) {
@@ -193,19 +328,19 @@
       } finally { reader.releaseLock(); }
     }
 
-    async function collect(system, user, apiKey, model, onChunk, cachedText) {
+    async function collect(system, user, apiKey, model, onChunk, cachedText, maxTokens = 1500) {
       let text = "";
-      for await (const chunk of streamClaude(system, user, apiKey, model, cachedText)) {
+      for await (const chunk of streamClaude(system, user, apiKey, model, cachedText, maxTokens)) {
         text += chunk;
         onChunk?.(text);
       }
       return text;
     }
 
-    /* ── VERDICT PARSE ────────────────────────────────────────── */
+    /* ── VERDICT PARSE ────────────────────────────────────────────── */
 
     function parseVerdict(text) {
-      const defs = [
+      const sections = [
         { key: "agrees",  re: /##\s*Where the Council Agrees\s*([\s\S]*?)(?=##|$)/i },
         { key: "clashes", re: /##\s*Where the Council Clashes\s*([\s\S]*?)(?=##|$)/i },
         { key: "blind",   re: /##\s*Blind Spots[^\n]*\s*([\s\S]*?)(?=##|$)/i },
@@ -213,12 +348,25 @@
         { key: "first",   re: /##\s*The One Thing[^\n]*\s*([\s\S]*?)(?=##|$)/i },
       ];
       const out = {};
-      defs.forEach(({ key, re }) => { const m = text.match(re); out[key] = m ? m[1].trim() : ""; });
+      sections.forEach(({ key, re }) => { const m = text.match(re); out[key] = m ? m[1].trim() : ""; });
       if (!out.rec) out.raw = text;
       return out;
     }
 
-    /* ── SMALL COMPONENTS ─────────────────────────────────────── */
+    /* ── RELATIVE TIME ────────────────────────────────────────────── */
+
+    function relativeTime(ts) {
+      const m = Math.floor((Date.now() - ts) / 60000);
+      if (m < 1)  return "just now";
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h ago`;
+      const d = Math.floor(h / 24);
+      if (d < 7)  return `${d}d ago`;
+      return new Date(ts).toLocaleDateString();
+    }
+
+    /* ── SMALL COMPONENTS ─────────────────────────────────────────── */
 
     function Md({ text, style }) {
       const html = useMemo(() => {
@@ -232,7 +380,9 @@
     function useCopy(text) {
       const [copied, setCopied] = useState(false);
       const copy = useCallback(() => {
-        navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); }).catch(() => {});
+        navigator.clipboard.writeText(text)
+          .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })
+          .catch(() => {});
       }, [text]);
       return [copied, copy];
     }
@@ -255,12 +405,57 @@
       );
     }
 
-    /* ── API KEY SETUP ────────────────────────────────────────── */
+    /* ── HISTORY SIDEBAR ──────────────────────────────────────────── */
+
+    function HistorySidebar({ sessions, activeSessionId, isOpen, onSelect, onNewCouncil, onToggle }) {
+      return (
+        <aside className={`sidebar${isOpen ? "" : " is-collapsed"}`} aria-label="Session history">
+
+          <div className="sidebar__head">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <span className="tag" style={{ color: "var(--t3)" }}>History</span>
+              <button className="sidebar-toggle" onClick={onToggle} title="Hide sidebar">
+                <i className="ti ti-layout-sidebar-left-collapse" style={{ fontSize: 14 }} />
+              </button>
+            </div>
+            <button className="new-council-btn" onClick={onNewCouncil}>
+              <i className="ti ti-plus" style={{ fontSize: 13 }} />
+              New Council
+            </button>
+          </div>
+
+          <div className="sidebar__scroll">
+            {sessions.length === 0 ? (
+              <div style={{ padding: "24px 10px", textAlign: "center" }}>
+                <i className="ti ti-clock" style={{ fontSize: 22, color: "var(--t3)", display: "block", marginBottom: 10 }} />
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>No sessions yet</p>
+                <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 6, lineHeight: 1.6 }}>
+                  Completed councils are<br />saved here automatically
+                </p>
+              </div>
+            ) : sessions.map(s => (
+              <div
+                key={s.id}
+                className={`session-card${activeSessionId === s.id ? " is-active" : ""}`}
+                onClick={() => onSelect(s)}
+                title={s.title}
+              >
+                <p className="session-card__title">{s.title}</p>
+                <p className="session-card__time">{relativeTime(s.timestamp)}</p>
+              </div>
+            ))}
+          </div>
+
+        </aside>
+      );
+    }
+
+    /* ── API KEY SETUP ────────────────────────────────────────────── */
 
     function ApiKeySetup({ onSave }) {
       const [key, setKey] = useState("");
       const [busy, setBusy] = useState(false);
-      const [err, setErr] = useState("");
+      const [err, setErr]   = useState("");
 
       const submit = async () => {
         const k = key.trim();
@@ -291,7 +486,8 @@
             </p>
             <label className="tag" style={{ display: "block", color: "var(--t3)", marginBottom: 8 }}>Anthropic API key</label>
             <input
-              type="password" value={key} onChange={e => setKey(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()}
+              type="password" value={key} onChange={e => setKey(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && submit()}
               placeholder="sk-ant-..." autoFocus
               style={{ width: "100%", padding: "11px 14px", fontSize: 14, fontFamily: "var(--mono)", background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: 6, color: "var(--t1)", outline: "none", marginBottom: 12 }}
             />
@@ -307,16 +503,20 @@
               {busy ? "VERIFYING…" : "ENTER THE COUNCIL"}
             </button>
             <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 16, textAlign: "center" }}>
-              Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--amber)", textDecoration: "none" }}>console.anthropic.com</a>
+              Get your key at{" "}
+              <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--amber)", textDecoration: "none" }}>
+                console.anthropic.com
+              </a>
             </p>
           </div>
         </div>
       );
     }
 
-    /* ── SETTINGS PANEL ───────────────────────────────────────── */
+    /* ── SETTINGS PANEL ───────────────────────────────────────────── */
 
     function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, onClearKey, onClose }) {
+      const synthesisLabel = model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "selected";
       return (
         <>
           <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 90, background: "oklch(0% 0 0 / 0.55)" }} />
@@ -331,7 +531,8 @@
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Model</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 28 }}>
               {MODELS.map(m => (
-                <button key={m.id} onClick={() => onModel(m.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", textAlign: "left", cursor: "pointer", background: model === m.id ? "var(--amber-tint)" : "var(--bg3)", border: `1px solid ${model === m.id ? "var(--amber-ring)" : "var(--bd)"}`, borderRadius: 6, transition: "all .15s" }}>
+                <button key={m.id} onClick={() => onModel(m.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", textAlign: "left", background: model === m.id ? "var(--amber-tint)" : "var(--bg3)", border: `1px solid ${model === m.id ? "var(--amber-ring)" : "var(--bd)"}`, borderRadius: 6, transition: "all .15s" }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: model === m.id ? "var(--amber)" : "var(--bd2)", flexShrink: 0, transition: "background .15s" }} />
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>{m.label}</p>
@@ -342,19 +543,20 @@
               ))}
             </div>
 
-            {/* Fast advisors toggle */}
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Cost optimization</p>
-            <button onClick={() => onFast(!fastAdvisors)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: fastAdvisors ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${fastAdvisors ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .15s" }}>
+            <button onClick={() => onFast(!fastAdvisors)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "10px 14px", marginBottom: 6, background: fastAdvisors ? "var(--green-tint)" : "var(--bg3)", border: `1px solid ${fastAdvisors ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 6, cursor: "pointer", transition: "all .15s" }}>
               <div style={{ textAlign: "left" }}>
                 <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: 0 }}>Fast advisors</p>
-                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Haiku for phases 1–2 · {model.includes("opus") ? "Opus" : model.includes("sonnet") ? "Sonnet" : "selected"} for verdict</p>
+                <p className="tag" style={{ color: "var(--t3)", fontSize: 9, marginTop: 2 }}>Haiku for phases 1–2 · {synthesisLabel} for verdict</p>
               </div>
               <div style={{ width: 32, height: 18, borderRadius: 9, background: fastAdvisors ? "var(--green)" : "var(--bd2)", transition: "background .2s", position: "relative", flexShrink: 0 }}>
                 <div style={{ position: "absolute", top: 2, left: fastAdvisors ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "var(--t1)", transition: "left .2s" }} />
               </div>
             </button>
-            {fastAdvisors && <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 28 }}>~73% cheaper · saves ~$0.065/session on Sonnet</p>}
-            {!fastAdvisors && <div style={{ marginBottom: 28 }} />}
+            {fastAdvisors
+              ? <p style={{ fontSize: 11, color: "var(--green)", marginBottom: 28 }}>~73% cheaper · saves ~$0.065/session on Sonnet</p>
+              : <div style={{ marginBottom: 28 }} />}
 
             <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>API Key</p>
             <div style={{ padding: "10px 12px", marginBottom: 10, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6 }}>
@@ -368,28 +570,32 @@
       );
     }
 
-    /* ── PHASE STEPPER ────────────────────────────────────────── */
+    /* ── PHASE STEPPER ────────────────────────────────────────────── */
 
     function PhaseStepper({ phase }) {
-      const steps = [{ id: "advisors", label: "Advisors" }, { id: "review", label: "Peer review" }, { id: "synthesis", label: "Chairman" }];
-      const idx = steps.findIndex(s => s.id === phase);
+      const steps = [
+        { id: "advisors",  label: "Advisors"    },
+        { id: "review",    label: "Peer review" },
+        { id: "synthesis", label: "Chairman"    },
+      ];
+      const activeIdx = steps.findIndex(s => s.id === phase);
       return (
         <div style={{ display: "flex", alignItems: "center", padding: "16px 20px", marginBottom: 24, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
           {steps.map(({ id, label }, i) => {
-            const done = i < idx, live = i === idx;
+            const isDone = i < activeIdx, isLive = i === activeIdx;
             return (
               <React.Fragment key={id}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${done ? "var(--green)" : live ? "var(--amber)" : "var(--bd2)"}`, background: done ? "var(--green)" : live ? "var(--amber-tint)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .4s" }}>
-                    {done
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${isDone ? "var(--green)" : isLive ? "var(--amber)" : "var(--bd2)"}`, background: isDone ? "var(--green)" : isLive ? "var(--amber-tint)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .4s" }}>
+                    {isDone
                       ? <i className="ti ti-check" style={{ fontSize: 12, color: "var(--bg)" }} />
-                      : live
+                      : isLive
                         ? <div className="spin" style={{ width: 11, height: 11, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%" }} />
                         : <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--bd2)" }} />}
                   </div>
-                  <span className="tag" style={{ fontSize: 9, color: live ? "var(--amber)" : done ? "var(--green)" : "var(--t3)", whiteSpace: "nowrap" }}>{label}</span>
+                  <span className="tag" style={{ fontSize: 9, color: isLive ? "var(--amber)" : isDone ? "var(--green)" : "var(--t3)", whiteSpace: "nowrap" }}>{label}</span>
                 </div>
-                {i < 2 && <div style={{ flex: 1, height: 1, margin: "0 8px 14px", background: done ? "var(--green)" : "var(--bd)", transition: "background .4s" }} />}
+                {i < 2 && <div style={{ flex: 1, height: 1, margin: "0 8px 14px", background: isDone ? "var(--green)" : "var(--bd)", transition: "background .4s" }} />}
               </React.Fragment>
             );
           })}
@@ -397,10 +603,10 @@
       );
     }
 
-    /* ── ADVISOR ROW (live) ───────────────────────────────────── */
+    /* ── ADVISOR ROW (live stream) ────────────────────────────────── */
 
     function AdvisorRow({ advisor, live, done, phase }) {
-      const isReview = phase === "review";
+      const isReviewPhase = phase === "review";
       return (
         <div style={{ padding: "14px 18px", background: done ? "var(--green-tint)" : "var(--bg2)", border: `1px solid ${done ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 7, marginBottom: 6, transition: "background .3s, border-color .3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: live ? 10 : 0 }}>
@@ -412,7 +618,9 @@
               <span className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{advisor.tagline}</span>
             </div>
             <span className="tag" style={{ fontSize: 9, color: done ? "var(--green)" : "var(--t3)" }}>
-              {done ? (isReview ? "reviewed" : "responded") : (isReview ? "reviewing…" : "deliberating…")}
+              {done
+                ? (isReviewPhase ? "reviewed"    : "responded")
+                : (isReviewPhase ? "reviewing…"  : "deliberating…")}
             </span>
           </div>
           {live && (
@@ -425,7 +633,7 @@
       );
     }
 
-    /* ── ACCORDION ────────────────────────────────────────────── */
+    /* ── ACCORDION ────────────────────────────────────────────────── */
 
     function Accordion({ label, sub, accent, tint, ring, isOpen, onToggle, children }) {
       return (
@@ -448,7 +656,7 @@
       );
     }
 
-    /* ── VERDICT SECTION ──────────────────────────────────────── */
+    /* ── VERDICT SECTION ──────────────────────────────────────────── */
 
     function VerdictSection({ label, icon, accent, tint, ring, text }) {
       if (!text) return null;
@@ -468,86 +676,192 @@
       );
     }
 
-    /* ── COUNCIL (MAIN) ───────────────────────────────────────── */
+    /* ── COUNCIL (MAIN) ───────────────────────────────────────────── */
 
     function Council({ apiKey, onClearKey }) {
-      const [q,            setQ]            = useState("");
-      const [phase,        setPhase]        = useState("idle");
-      const [live,         setLive]         = useState({});
-      const [liveRev,      setLiveRev]      = useState("");   // single consolidated review
-      const [liveVerdict,  setLiveVerdict]  = useState("");
-      const [advisorDone,  setAdvisorDone]  = useState({});
-      const [finalTexts,   setFinalTexts]   = useState({});
-      const [peerReview,   setPeerReview]   = useState("");   // single review text
-      const [verdict,      setVerdict]      = useState("");
-      const [open,         setOpen]         = useState({});
-      const [error,        setError]        = useState(null);
+
+      // ── Active session state ──────────────────────────────────────
+      const [q,           setQ]           = useState("");
+      const [phase,       setPhase]       = useState("idle");
+      const [live,        setLive]        = useState({});
+      const [liveRev,     setLiveRev]     = useState("");
+      const [liveVerdict, setLiveVerdict] = useState("");
+      const [advisorDone, setAdvisorDone] = useState({});
+      const [finalTexts,  setFinalTexts]  = useState({});
+      const [peerReview,  setPeerReview]  = useState("");
+      const [verdict,     setVerdict]     = useState("");
+      const [openPanels,  setOpenPanels]  = useState({});
+      const [error,       setError]       = useState(null);
+
+      // ── User preferences (persisted in localStorage) ─────────────
       const [model,        setModel]        = useState(() => localStorage.getItem("council-model") || MODELS[1].id);
       const [fastAdvisors, setFastAdvisors] = useState(() => localStorage.getItem("council-fast") !== "false");
       const [showSettings, setShowSettings] = useState(false);
 
-      const advisorModel = fastAdvisors ? FAST_MODEL : model;
+      // ── Sidebar & history state ───────────────────────────────────
+      const [sidebarOpen,     setSidebarOpen]     = useState(true);
+      const [sessions,        setSessions]        = useState([]);
+      const [activeSessionId, setActiveSessionId] = useState(null);
 
-      const isLoading = ["advisors", "review", "synthesis"].includes(phase);
-      const tog = k => setOpen(p => ({ ...p, [k]: !p[k] }));
-      const modelLabel = m => MODELS.find(x => x.id === m)?.label ?? m;
+      // When Fast Advisors is on, route phases 1+2 to the cheaper Haiku model.
+      // Only the Chairman synthesis uses the user's selected quality model.
+      const advisorModel = fastAdvisors ? FAST_MODEL : model;
+      const isLoading    = ["advisors", "review", "synthesis"].includes(phase);
+
+      const togglePanel = k => setOpenPanels(p => ({ ...p, [k]: !p[k] }));
+      const modelLabel  = m => MODELS.find(x => x.id === m)?.label ?? m;
 
       useEffect(() => { localStorage.setItem("council-model", model); }, [model]);
       useEffect(() => { localStorage.setItem("council-fast", fastAdvisors); }, [fastAdvisors]);
 
+      // ── Load session history from IndexedDB ───────────────────────
+      const refreshSessionList = useCallback(async () => {
+        try {
+          const all = await db.sessions.orderBy("timestamp").reverse().toArray();
+          setSessions(all);
+        } catch (e) {
+          console.warn("Failed to load session history:", e);
+        }
+      }, []);
+
+      useEffect(() => { refreshSessionList(); }, [refreshSessionList]);
+
+      // ── Hydrate all React state from a stored session ─────────────
+      // No network call — we replay what was already captured at save time.
+      const handleSelectSession = useCallback((session) => {
+        setQ(session.prompt || "");
+        setFinalTexts(session.advisorTexts || {});
+        setPeerReview(session.peerReview || "");
+        setVerdict(session.verdict || "");
+        setPhase("done");
+        setOpenPanels({});
+        setError(null);
+        setLive({});
+        setLiveRev("");
+        setLiveVerdict("");
+        setAdvisorDone({});
+        setActiveSessionId(session.id);
+      }, []);
+
+      // ── Reset everything back to a blank scratchpad ───────────────
+      const handleNewCouncil = useCallback(() => {
+        setQ("");
+        setPhase("idle");
+        setLive({});
+        setLiveRev("");
+        setLiveVerdict("");
+        setAdvisorDone({});
+        setFinalTexts({});
+        setPeerReview("");
+        setVerdict("");
+        setOpenPanels({});
+        setError(null);
+        setActiveSessionId(null);
+      }, []);
+
+      // ── Run a live council session ────────────────────────────────
       const run = useCallback(async () => {
         if (!q.trim() || isLoading) return;
+
         setError(null);
         setLive({}); setLiveRev(""); setLiveVerdict("");
         setAdvisorDone({});
-        setFinalTexts({}); setPeerReview(""); setVerdict(""); setOpen({});
+        setFinalTexts({}); setPeerReview(""); setVerdict(""); setOpenPanels({});
+        setActiveSessionId(null);
 
         try {
-          /* Phase 1: Advisors — cheap fast model, 100-word responses */
+          /* ── Phase 1: Advisors ──────────────────────────────────────
+             All five run in parallel. max_tokens:800 enforces a tight
+             ceiling — advisors are meant to be punchy, not exhaustive.   */
           setPhase("advisors");
-          const Q = `Question for the council:\n\n---\n${q}\n---\n\nRespond from your perspective only. Be direct. Lean fully into your angle.`;
-          const texts = {};
+          const councilQuestion = `Question for the council:\n\n---\n${q}\n---\n\nRespond from your perspective only. Be direct. Lean fully into your angle.`;
+          const collectedTexts  = {};
+
           await Promise.all(ADVISORS.map(({ id, system }) =>
-            collect(system, Q, apiKey, advisorModel, full => {  // Lever 3: fast model
-              texts[id] = full;
-              setLive(prev => ({ ...prev, [id]: full }));
-            }).then(() => setAdvisorDone(prev => ({ ...prev, [id]: true })))
+            collect(
+              system,
+              councilQuestion,
+              apiKey,
+              advisorModel,  // Haiku when fast mode is active
+              full => {
+                collectedTexts[id] = full;
+                setLive(prev => ({ ...prev, [id]: full }));
+              },
+              null,
+              800            // Token ceiling keeps advisor output focused
+            ).then(() => setAdvisorDone(prev => ({ ...prev, [id]: true })))
           ));
-          setFinalTexts({ ...texts });
+          setFinalTexts({ ...collectedTexts });
 
-          /* Phase 2: Single consolidated peer review — 1 call instead of 5 */
+          /* ── Phase 2: Peer review ───────────────────────────────────
+             One consolidated call (not five) to minimize cost.
+             The anonymous advisor block is the cached prefix — on a warm
+             cache this entire block costs zero input tokens.              */
           setPhase("review");
-          const shuffled  = [...ADVISORS].sort(() => Math.random() - 0.5);
-          const letters   = Object.fromEntries(shuffled.map((a, i) => [String.fromCharCode(65 + i), a.id]));
-          // Shared cached block: all 5 responses in shuffled anonymous order
-          const anonBlock = Object.entries(letters).map(([l, id]) => `**Advisor ${l}:**\n${texts[id]}`).join("\n\n");
-          const reviewTail = `Question: "${q}"\n\nAnalyze the five advisor responses above:\n1. Strongest response (letter + one-sentence reason)\n2. Biggest blind spot (letter + what it missed)\n3. Critical insight ALL responses missed\n4. The sharpest point of disagreement for the Chairman\n\n200 words max.`;
-          const reviewText = await collect(
-            "You are an impartial Council Analyst. Evaluate the five advisor responses with precision and rigor. No preamble.",
-            reviewTail, apiKey, advisorModel,  // Lever 3: fast model
-            full => setLiveRev(full),
-            anonBlock   // cached prefix
-          );
-          setPeerReview(reviewText);
+          const shuffledAdvisors  = [...ADVISORS].sort(() => Math.random() - 0.5);
+          const letterMap         = Object.fromEntries(shuffledAdvisors.map((a, i) => [String.fromCharCode(65 + i), a.id]));
+          const anonymousBlock    = Object.entries(letterMap).map(([l, id]) => `**Advisor ${l}:**\n${collectedTexts[id]}`).join("\n\n");
+          const reviewInstruction = `Question: "${q}"\n\nAnalyze the five advisor responses above:\n1. Strongest response (letter + one-sentence reason)\n2. Biggest blind spot (letter + what it missed)\n3. Critical insight ALL responses missed\n4. The sharpest point of disagreement for the Chairman\n\n200 words max.`;
 
-          /* Phase 3: Chairman synthesis — full transcript cached, best model */
+          const peerReviewText = await collect(
+            "You are an impartial Council Analyst. Evaluate the five advisor responses with precision and rigor. No preamble.",
+            reviewInstruction,
+            apiKey,
+            advisorModel,   // Haiku when fast mode is active
+            full => setLiveRev(full),
+            anonymousBlock, // Cached prefix: entire advisor block
+            800
+          );
+          setPeerReview(peerReviewText);
+
+          /* ── Phase 3: Chairman synthesis ────────────────────────────
+             Full session transcript is cached as the leading content block.
+             The Chairman always uses the user's chosen quality model.      */
           setPhase("synthesis");
-          const aBlock = ADVISORS.map(a => `**${a.name}:**\n${texts[a.id]}`).join("\n\n");
-          const transcriptCache = `SESSION QUESTION:\n${q}\n\nADVISOR RESPONSES:\n\n${aBlock}\n\nCONSOLIDATED PEER REVIEW:\n${reviewText}`;
-          const SQ = `Produce the verdict with exactly these five section headers:\n\n## Where the Council Agrees\n## Where the Council Clashes\n## Blind Spots the Council Caught\n## The Recommendation\n## The One Thing to Do First`;
-          const cv = await collect(CHAIRMAN, SQ, apiKey, model, full => setLiveVerdict(full), transcriptCache); // best model
-          setVerdict(cv);
+          const namedAdvisorBlock  = ADVISORS.map(a => `**${a.name}:**\n${collectedTexts[a.id]}`).join("\n\n");
+          const cachedTranscript   = `SESSION QUESTION:\n${q}\n\nADVISOR RESPONSES:\n\n${namedAdvisorBlock}\n\nCONSOLIDATED PEER REVIEW:\n${peerReviewText}`;
+          const synthesisInstruction = `Produce the verdict with exactly these five section headers:\n\n## Where the Council Agrees\n## Where the Council Clashes\n## Blind Spots the Council Caught\n## The Recommendation\n## The One Thing to Do First`;
+
+          const chairmanVerdict = await collect(
+            CHAIRMAN_SYSTEM,
+            synthesisInstruction,
+            apiKey,
+            model,              // User's selected quality model (never downgraded)
+            full => setLiveVerdict(full),
+            cachedTranscript,   // Cached: full transcript
+            1500
+          );
+
+          setVerdict(chairmanVerdict);
+
+          // Auto-save before setting phase to "done" so the sidebar list
+          // is already refreshed when the results view appears.
+          await persistSession({
+            prompt:       q,
+            advisorTexts: collectedTexts,
+            peerReview:   peerReviewText,
+            verdict:      chairmanVerdict,
+          }).catch(e => console.warn("Session auto-save failed silently:", e));
+
+          await refreshSessionList();
           setPhase("done");
+
         } catch (e) {
           setError(e.message || "Something went wrong.");
           setPhase("idle");
         }
-      }, [q, isLoading, apiKey, model]);
+      }, [q, isLoading, apiKey, model, advisorModel, refreshSessionList]);
 
-      const sec = useMemo(() => verdict ? parseVerdict(verdict) : null, [verdict]);
+      const parsedVerdict = useMemo(() => verdict ? parseVerdict(verdict) : null, [verdict]);
 
-      const exportMd = () => {
-        const md = [`# Council Verdict\n\n**Question:** ${q}\n\n---\n`, verdict, `\n\n---\n\n## Advisor Transcripts\n`, ...ADVISORS.map(a => `\n### ${a.name}\n${finalTexts[a.id] || ""}`), `\n\n---\n\n## Peer Review\n\n${peerReview}`].join("");
+      const exportMarkdown = () => {
+        const md = [
+          `# Council Verdict\n\n**Question:** ${q}\n\n---\n`,
+          verdict,
+          `\n\n---\n\n## Advisor Transcripts\n`,
+          ...ADVISORS.map(a => `\n### ${a.name}\n${finalTexts[a.id] || ""}`),
+          `\n\n---\n\n## Peer Review\n\n${peerReview}`,
+        ].join("");
         const blob = new Blob([md], { type: "text/markdown" });
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement("a");
@@ -556,211 +870,261 @@
       };
 
       return (
-        <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 0 80px" }}>
-          {showSettings && (
-            <SettingsPanel apiKey={apiKey} model={model} onModel={setModel}
-              fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
-              onClearKey={() => { onClearKey(); setShowSettings(false); }}
-              onClose={() => setShowSettings(false)} />
-          )}
+        <div className="app-shell">
 
-          {/* Header */}
-          <div style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 36 }}>
-            <div>
-              <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Sai's Council</p>
-              <h1 style={{ fontFamily: "var(--display)", fontSize: 60, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 8 }}>THE COUNCIL</h1>
-              <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, maxWidth: "50ch" }}>
-                Five independent advisors. Anonymous peer review. One verdict.<br />
-                Each advisor runs in its own context — no perspective bleed.
-              </p>
-              <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 8 }}>
-                Derived from <a href="https://karpathy.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--t3)", textDecoration: "underline", textUnderlineOffset: 3 }}>Andrej Karpathy</a>'s LLM Council concept
-              </p>
-            </div>
-            <button onClick={() => setShowSettings(true)} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer" }}>
-              <i className="ti ti-settings" style={{ fontSize: 14 }} />
-              {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)}
-            </button>
-          </div>
+          {/* ── History sidebar ──────────────────────────────────── */}
+          <HistorySidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            isOpen={sidebarOpen}
+            onSelect={handleSelectSession}
+            onNewCouncil={handleNewCouncil}
+            onToggle={() => setSidebarOpen(v => !v)}
+          />
 
-          <div style={{ padding: "0 32px" }}>
+          {/* ── Main scrollable content ──────────────────────────── */}
+          <div className="main-panel">
+            <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 0 80px" }}>
 
-            {/* ── Idle / Done: input ── */}
-            {(phase === "idle" || phase === "done") && (
-              <div className="fade-up">
-                {phase === "done" && <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>New session</p>}
-
-                <textarea
-                  value={q} onChange={e => setQ(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }}
-                  placeholder="What decision should the council pressure-test? Be specific — context sharpens the output."
-                  style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)" }}
+              {showSettings && (
+                <SettingsPanel
+                  apiKey={apiKey} model={model} onModel={setModel}
+                  fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
+                  onClearKey={() => { onClearKey(); setShowSettings(false); }}
+                  onClose={() => setShowSettings(false)}
                 />
+              )}
 
-                <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 28px" }}>
-                  <button onClick={run} disabled={!q.trim()} style={{ flex: 1, padding: "13px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !q.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
-                    CONVENE THE COUNCIL
-                  </button>
-                  <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
-                </div>
-
-                {error && (
-                  <div style={{ padding: "11px 15px", marginBottom: 20, background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
-                    <i className="ti ti-alert-circle" style={{ marginRight: 7 }} />{error}
-                  </div>
-                )}
-
-                <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>The five advisors</p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {ADVISORS.map((a, i) => (
-                    <div key={a.id} style={{ gridColumn: i === 4 ? "span 2" : undefined, padding: "12px 16px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                        <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
-                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
-                      </div>
-                      <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{a.tagline}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ── Loading ── */}
-            {isLoading && (
-              <div>
-                <PhaseStepper phase={phase} />
-
-                {phase === "advisors" && (
+              {/* ── Page header ───────────────────────────────────── */}
+              <div style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 36 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  {/* Expand sidebar toggle — only visible when sidebar is hidden */}
+                  {!sidebarOpen && (
+                    <button
+                      onClick={() => setSidebarOpen(true)}
+                      title="Show history"
+                      style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "none", border: "1px solid var(--bd)", borderRadius: 5, color: "var(--t3)", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }}
+                    >
+                      <i className="ti ti-layout-sidebar-left-expand" style={{ fontSize: 14 }} />
+                    </button>
+                  )}
                   <div>
-                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Advisors deliberating</p>
-                    {ADVISORS.map(a => (
-                      <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors" />
-                    ))}
+                    <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Sai's Council</p>
+                    <h1 style={{ fontFamily: "var(--display)", fontSize: 60, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 8 }}>THE COUNCIL</h1>
+                    <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, maxWidth: "50ch" }}>
+                      Five independent advisors. Anonymous peer review. One verdict.<br />
+                      Each advisor runs in its own context — no perspective bleed.
+                    </p>
+                    <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 8 }}>
+                      Derived from{" "}
+                      <a href="https://karpathy.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--t3)", textDecoration: "underline", textUnderlineOffset: 3 }}>
+                        Andrej Karpathy
+                      </a>'s LLM Council concept
+                    </p>
                   </div>
-                )}
-                {phase === "review" && (
-                  <div>
-                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Consolidated peer review</p>
-                    <div style={{ padding: "14px 18px", background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: liveRev ? 10 : 0 }}>
-                        <i className="ti ti-analyze pulse" style={{ fontSize: 14, color: "var(--purple)" }} />
-                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>Council Analyst</span>
-                        <span className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>cross-examining all five</span>
-                      </div>
-                      {liveRev && (
-                        <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 90, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
-                          {liveRev}<span style={{ animation: "blink .7s step-end infinite", color: "var(--purple)" }}>▋</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {phase === "synthesis" && (
-                  <div>
-                    <p className="tag" style={{ color: "var(--amber)", marginBottom: 12 }}>Chairman synthesizing verdict</p>
-                    <div style={{ padding: 24, minHeight: 120, background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
-                      {liveVerdict
-                        ? <><Md text={liveVerdict} /><span style={{ animation: "blink .7s step-end infinite", color: "var(--amber)" }}>▋</span></>
-                        : <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                            <div className="spin" style={{ width: 14, height: 14, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%", flexShrink: 0 }} />
-                            <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>Deliberating…</span>
-                          </div>}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Results ── */}
-            {phase === "done" && sec && (
-              <div className="fade-up">
-                {/* Question echo */}
-                <div style={{ padding: "16px 20px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8, display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ flex: 1 }}>
-                    <p className="tag" style={{ color: "var(--amber)", marginBottom: 8 }}>Session question</p>
-                    <p style={{ fontSize: 15, color: "var(--t2)", lineHeight: 1.65, fontStyle: "italic", margin: 0 }}>"{q}"</p>
-                  </div>
-                  <CopyBtn text={q} style={{ flexShrink: 0, marginTop: 2 }} />
                 </div>
-
-                <Divider label="Chairman's verdict" />
-
-                <VerdictSection label="Where the council agrees"  icon="ti-check"          accent="var(--green)"  tint="var(--green-tint)"  ring="var(--green-ring)"  text={sec.agrees} />
-                <VerdictSection label="Where the council clashes" icon="ti-arrows-exchange" accent="var(--red)"    tint="var(--red-tint)"    ring="var(--red-ring)"    text={sec.clashes} />
-                <VerdictSection label="Blind spots caught"        icon="ti-eye-off"         accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" text={sec.blind} />
-
-                {sec.rec && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <i className="ti ti-star" style={{ fontSize: 13, color: "var(--amber)" }} />
-                        <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>The recommendation</span>
-                      </div>
-                      <CopyBtn text={sec.rec} />
-                    </div>
-                    <div style={{ padding: "20px 22px", background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
-                      <Md text={sec.rec} />
-                    </div>
-                  </div>
-                )}
-
-                {sec.first && (
-                  <div style={{ marginBottom: 36 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <i className="ti ti-arrow-narrow-right" style={{ fontSize: 13, color: "var(--green)" }} />
-                        <span className="tag" style={{ color: "var(--green)", fontSize: 10 }}>The one thing to do first</span>
-                      </div>
-                      <CopyBtn text={sec.first} />
-                    </div>
-                    <div style={{ padding: "22px 24px", background: "var(--green-tint)", border: "1px solid var(--green-ring)", borderRadius: 8 }}>
-                      <p style={{ fontFamily: "var(--display)", fontSize: 28, letterSpacing: 2, color: "var(--green)", lineHeight: 1.3, margin: 0 }}>{sec.first}</p>
-                    </div>
-                  </div>
-                )}
-
-                {sec.raw && (
-                  <div style={{ padding: "20px 22px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
-                    <Md text={sec.raw} />
-                  </div>
-                )}
-
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                  <button onClick={exportMd} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--t2)", background: "var(--bg3)", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
-                    <i className="ti ti-download" style={{ fontSize: 12 }} />Export markdown
-                  </button>
-                </div>
-
-                <Divider label="Full transcripts" />
-
-                <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisor responses</p>
-                <div style={{ marginBottom: 24 }}>
-                  {ADVISORS.map(a => (
-                    <Accordion key={a.id} label={a.name} sub={a.tagline} accent={a.accent} tint={a.tint} ring={a.ring} isOpen={!!open[a.id]} onToggle={() => tog(a.id)}>
-                      {finalTexts[a.id] || ""}
-                    </Accordion>
-                  ))}
-                </div>
-
-                {peerReview && (
-                  <Accordion label="Consolidated peer review" sub="cross-examination" accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" isOpen={!!open.rev} onToggle={() => tog("rev")}>
-                    {peerReview}
-                  </Accordion>
-                )}
-
-                <button onClick={() => { setPhase("idle"); setQ(""); setVerdict(""); }} style={{ width: "100%", padding: "13px 20px", marginTop: 20, fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "transparent", border: "1px solid var(--bd2)", color: "var(--t2)", borderRadius: 6, cursor: "pointer" }}>
-                  NEW SESSION
+                <button
+                  onClick={() => setShowSettings(true)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer", flexShrink: 0 }}
+                >
+                  <i className="ti ti-settings" style={{ fontSize: 14 }} />
+                  {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)}
                 </button>
               </div>
-            )}
 
+              <div style={{ padding: "0 32px" }}>
+
+                {/* ── Idle / Done: prompt input ─────────────────────── */}
+                {(phase === "idle" || phase === "done") && (
+                  <div className="fade-up">
+                    {phase === "done" && (
+                      <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>New session</p>
+                    )}
+
+                    <textarea
+                      value={q}
+                      onChange={e => setQ(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }}
+                      placeholder="What decision should the council pressure-test? Be specific — context sharpens the output."
+                      style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)" }}
+                    />
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 28px" }}>
+                      <button
+                        onClick={run} disabled={!q.trim()}
+                        style={{ flex: 1, padding: "13px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !q.trim() ? 0.3 : 1, transition: "opacity .15s" }}
+                      >
+                        CONVENE THE COUNCIL
+                      </button>
+                      <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
+                    </div>
+
+                    {error && (
+                      <div style={{ padding: "11px 15px", marginBottom: 20, background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
+                        <i className="ti ti-alert-circle" style={{ marginRight: 7 }} />{error}
+                      </div>
+                    )}
+
+                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>The five advisors</p>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {ADVISORS.map((a, i) => (
+                        <div key={a.id} style={{ gridColumn: i === 4 ? "span 2" : undefined, padding: "12px 16px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                            <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
+                            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
+                          </div>
+                          <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{a.tagline}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Loading phases ────────────────────────────────── */}
+                {isLoading && (
+                  <div>
+                    <PhaseStepper phase={phase} />
+
+                    {phase === "advisors" && (
+                      <div>
+                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Advisors deliberating</p>
+                        {ADVISORS.map(a => (
+                          <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors" />
+                        ))}
+                      </div>
+                    )}
+
+                    {phase === "review" && (
+                      <div>
+                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Consolidated peer review</p>
+                        <div style={{ padding: "14px 18px", background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: liveRev ? 10 : 0 }}>
+                            <i className="ti ti-analyze pulse" style={{ fontSize: 14, color: "var(--purple)" }} />
+                            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>Council Analyst</span>
+                            <span className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>cross-examining all five</span>
+                          </div>
+                          {liveRev && (
+                            <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--t2)", maxHeight: 90, overflow: "hidden", maskImage: "linear-gradient(to bottom, black 40%, transparent 100%)", WebkitMaskImage: "linear-gradient(to bottom, black 40%, transparent 100%)" }}>
+                              {liveRev}<span style={{ animation: "blink .7s step-end infinite", color: "var(--purple)" }}>▋</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {phase === "synthesis" && (
+                      <div>
+                        <p className="tag" style={{ color: "var(--amber)", marginBottom: 12 }}>Chairman synthesizing verdict</p>
+                        <div style={{ padding: 24, minHeight: 120, background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
+                          {liveVerdict
+                            ? <><Md text={liveVerdict} /><span style={{ animation: "blink .7s step-end infinite", color: "var(--amber)" }}>▋</span></>
+                            : <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                <div className="spin" style={{ width: 14, height: 14, border: "1.5px solid var(--bd)", borderTopColor: "var(--amber)", borderRadius: "50%", flexShrink: 0 }} />
+                                <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>Deliberating…</span>
+                              </div>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Results ───────────────────────────────────────── */}
+                {phase === "done" && parsedVerdict && (
+                  <div className="fade-up">
+
+                    {/* Session question echo */}
+                    <div style={{ padding: "16px 20px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8, display: "flex", gap: 12, alignItems: "flex-start" }}>
+                      <div style={{ flex: 1 }}>
+                        <p className="tag" style={{ color: "var(--amber)", marginBottom: 8 }}>Session question</p>
+                        <p style={{ fontSize: 15, color: "var(--t2)", lineHeight: 1.65, fontStyle: "italic", margin: 0 }}>"{q}"</p>
+                      </div>
+                      <CopyBtn text={q} style={{ flexShrink: 0, marginTop: 2 }} />
+                    </div>
+
+                    <Divider label="Chairman's verdict" />
+
+                    <VerdictSection label="Where the council agrees"  icon="ti-check"          accent="var(--green)"  tint="var(--green-tint)"  ring="var(--green-ring)"  text={parsedVerdict.agrees}  />
+                    <VerdictSection label="Where the council clashes" icon="ti-arrows-exchange" accent="var(--red)"    tint="var(--red-tint)"    ring="var(--red-ring)"    text={parsedVerdict.clashes} />
+                    <VerdictSection label="Blind spots caught"        icon="ti-eye-off"         accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" text={parsedVerdict.blind}   />
+
+                    {parsedVerdict.rec && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <i className="ti ti-star" style={{ fontSize: 13, color: "var(--amber)" }} />
+                            <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>The recommendation</span>
+                          </div>
+                          <CopyBtn text={parsedVerdict.rec} />
+                        </div>
+                        <div style={{ padding: "20px 22px", background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
+                          <Md text={parsedVerdict.rec} />
+                        </div>
+                      </div>
+                    )}
+
+                    {parsedVerdict.first && (
+                      <div style={{ marginBottom: 36 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <i className="ti ti-arrow-narrow-right" style={{ fontSize: 13, color: "var(--green)" }} />
+                            <span className="tag" style={{ color: "var(--green)", fontSize: 10 }}>The one thing to do first</span>
+                          </div>
+                          <CopyBtn text={parsedVerdict.first} />
+                        </div>
+                        <div style={{ padding: "22px 24px", background: "var(--green-tint)", border: "1px solid var(--green-ring)", borderRadius: 8 }}>
+                          <p style={{ fontFamily: "var(--display)", fontSize: 28, letterSpacing: 2, color: "var(--green)", lineHeight: 1.3, margin: 0 }}>{parsedVerdict.first}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {parsedVerdict.raw && (
+                      <div style={{ padding: "20px 22px", marginBottom: 36, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+                        <Md text={parsedVerdict.raw} />
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                      <button onClick={exportMarkdown} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--t2)", background: "var(--bg3)", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
+                        <i className="ti ti-download" style={{ fontSize: 12 }} />Export markdown
+                      </button>
+                    </div>
+
+                    <Divider label="Full transcripts" />
+
+                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisor responses</p>
+                    <div style={{ marginBottom: 24 }}>
+                      {ADVISORS.map(a => (
+                        <Accordion key={a.id} label={a.name} sub={a.tagline} accent={a.accent} tint={a.tint} ring={a.ring} isOpen={!!openPanels[a.id]} onToggle={() => togglePanel(a.id)}>
+                          {finalTexts[a.id] || ""}
+                        </Accordion>
+                      ))}
+                    </div>
+
+                    {peerReview && (
+                      <Accordion label="Consolidated peer review" sub="cross-examination" accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" isOpen={!!openPanels.rev} onToggle={() => togglePanel("rev")}>
+                        {peerReview}
+                      </Accordion>
+                    )}
+
+                    <button
+                      onClick={handleNewCouncil}
+                      style={{ width: "100%", padding: "13px 20px", marginTop: 20, fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "transparent", border: "1px solid var(--bd2)", color: "var(--t2)", borderRadius: 6, cursor: "pointer", transition: "border-color .15s, color .15s" }}
+                    >
+                      NEW SESSION
+                    </button>
+
+                  </div>
+                )}
+
+              </div>
+            </div>
           </div>
+
         </div>
       );
     }
 
-    /* ── APP ROOT ─────────────────────────────────────────────── */
+    /* ── APP ROOT ─────────────────────────────────────────────────── */
 
     function App() {
       const [apiKey, setApiKey] = useState(() => localStorage.getItem("council-key") || "");
