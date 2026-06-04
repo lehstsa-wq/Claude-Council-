@@ -1314,7 +1314,7 @@ Do not describe what you're doing. Just produce the writing.`,
 
     /* ── ADVISOR PICKER ─────────────────────────────────────────────── */
 
-    function AdvisorPicker({ selected, onChange }) {
+    function AdvisorPicker({ advisors = ADVISORS, selected, onChange }) {
       const toggle = (id) => {
         const next = selected.includes(id)
           ? selected.filter(x => x !== id)
@@ -1322,46 +1322,40 @@ Do not describe what you're doing. Just produce the writing.`,
         if (next.length < 2) return;
         onChange(next);
       };
+      const btnStyle = { fontSize: 10, color: "var(--t3)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", letterSpacing: "1px", textTransform: "uppercase" };
 
       return (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--bd)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <p className="tag" style={{ color: "var(--t3)" }}>Advisors</p>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => onChange(ADVISORS.map(a => a.id))}
-                style={{ fontSize: 10, color: "var(--t3)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", letterSpacing: "1px", textTransform: "uppercase" }}>
-                All
-              </button>
-              <button onClick={() => onChange(ADVISORS.slice(0, 3).map(a => a.id))}
-                style={{ fontSize: 10, color: "var(--t3)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", letterSpacing: "1px", textTransform: "uppercase" }}>
-                3 Core
-              </button>
+              <button onClick={() => onChange(advisors.map(a => a.id))} style={btnStyle}>All</button>
+              {advisors.length > 3 && (
+                <button onClick={() => onChange(advisors.slice(0, 3).map(a => a.id))} style={btnStyle}>First 3</button>
+              )}
+              {advisors.length > 4 && (
+                <button onClick={() => onChange(advisors.slice(0, Math.ceil(advisors.length / 2)).map(a => a.id))} style={btnStyle}>Half</button>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {ADVISORS.map(advisor => {
+            {advisors.map(advisor => {
               const isOn = selected.includes(advisor.id);
               const isDisabled = isOn && selected.length <= 2;
               return (
                 <button key={advisor.id} onClick={() => toggle(advisor.id)} disabled={isDisabled}
-                  title={isDisabled ? "Minimum 2 advisors required" : advisor.tagline}
+                  title={isDisabled ? "Minimum 2 required" : advisor.tagline}
                   className="advisor-pill"
-                  style={{
-                    border: `1.5px solid ${isOn ? advisor.ring : "var(--bd)"}`,
-                    background: isOn ? advisor.tint : "var(--bg3)",
-                    opacity: isDisabled ? 0.35 : 1,
-                  }}>
+                  style={{ border: `1.5px solid ${isOn ? advisor.ring : "var(--bd)"}`, background: isOn ? advisor.tint : "var(--bg3)", opacity: isDisabled ? 0.35 : 1 }}>
                   <i className={`ti ${advisor.icon}`} style={{ fontSize: 12, color: isOn ? advisor.accent : "var(--t3)" }} />
-                  <span style={{ fontSize: 11, fontWeight: 500, color: isOn ? "var(--t1)" : "var(--t3)" }}>
-                    {advisor.name}
-                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: isOn ? "var(--t1)" : "var(--t3)" }}>{advisor.name}</span>
                   {isOn && <i className="ti ti-check" style={{ fontSize: 10, color: advisor.accent }} />}
                 </button>
               );
             })}
           </div>
           <p style={{ fontSize: 10, color: "var(--t3)", marginTop: 6, fontFamily: "var(--mono)" }}>
-            {selected.length} of {ADVISORS.length} advisors · minimum 2 required
+            {selected.length} of {advisors.length} active · min 2
           </p>
         </div>
       );
@@ -1525,7 +1519,7 @@ Do not describe what you're doing. Just produce the writing.`,
 
     /* ── SETTINGS PANEL ─────────────────────────────────────────────── */
 
-    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, generateDiagrams, onGenerateDiagrams, onBudgetMode, onClearKey, onClose, userContext, onUserContext, contextInput, onContextInput, selectedAdvisors, onSelectedAdvisors, activeMode }) {
+    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, generateDiagrams, onGenerateDiagrams, onBudgetMode, onClearKey, onClose, userContext, onUserContext, contextInput, onContextInput, modeAdvisors, modeSelected, onModeSelected, activeMode }) {
       const estimatedCost = estimateCostPerTurn(model, fastAdvisors, advisorCount, peerReviewEnabled, generateDiagrams);
       const isBudgetMode  = model === FAST_MODEL && fastAdvisors && advisorCount <= 3 && !peerReviewEnabled;
       const isUnderPenny  = estimatedCost < 0.01;
@@ -1631,23 +1625,8 @@ Do not describe what you're doing. Just produce the writing.`,
                   />
                 </div>
 
-                {/* Advisor picker — decision mode shows full picker, others show count */}
-                {activeMode === "decision" ? (
-                  <AdvisorPicker selected={selectedAdvisors} onChange={onSelectedAdvisors} />
-                ) : (
-                  <div style={{ marginTop: 16 }}>
-                    <p style={{ fontSize: 12, fontWeight: 500, color: "var(--t2)", margin: "0 0 8px" }}>
-                      Advisors: <span style={{ color: "var(--t1)", fontWeight: 600 }}>{advisorCount}</span>
-                    </p>
-                    <div style={{ display: "flex", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 7, overflow: "hidden" }}>
-                      {[2, 3, 4, 5].map(n => (
-                        <button key={n} onClick={() => onAdvisorCount(n)} style={{ flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 500, background: advisorCount === n ? "var(--amber-tint)" : "transparent", color: advisorCount === n ? "var(--amber)" : "var(--t2)", border: "none", borderRight: n < 5 ? "1px solid var(--bd)" : "none", cursor: "pointer", transition: "background .15s" }}>
-                          {n}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Advisor picker — works for all modes */}
+                <AdvisorPicker advisors={modeAdvisors} selected={modeSelected} onChange={onModeSelected} />
               </div>
 
               {/* ── Output ────────────────────────────────────── */}
@@ -2036,22 +2015,44 @@ Do not describe what you're doing. Just produce the writing.`,
       const modeAdvisors       = currentMode.advisors;
       const activeChairmanSystem = currentMode.chairmanSystem;
 
+      // Decision mode: which specific advisors are selected
       const [selectedAdvisors, setSelectedAdvisors] = useState(() => {
         try {
           const saved = localStorage.getItem("council-selected-advisors");
           return saved ? JSON.parse(saved) : ADVISORS.map(a => a.id);
         } catch { return ADVISORS.map(a => a.id); }
       });
-
       useEffect(() => {
         localStorage.setItem("council-selected-advisors", JSON.stringify(selectedAdvisors));
       }, [selectedAdvisors]);
 
-      const activeAdvisors = useMemo(
-        () => ADVISORS.filter(a => selectedAdvisors.includes(a.id)),
-        [selectedAdvisors]
-      );
-      const safeAdvisors = activeAdvisors.length >= 2 ? activeAdvisors : ADVISORS.slice(0, 2);
+      // Other modes: per-mode advisor selection (stored as { modeId: [advisorId, ...] })
+      const [modeAdvisorSelections, setModeAdvisorSelections] = useState(() => {
+        try {
+          const saved = localStorage.getItem("council-mode-advisor-selections");
+          return saved ? JSON.parse(saved) : {};
+        } catch { return {}; }
+      });
+
+      const getModeSelected = useCallback((mode) => {
+        if (mode === "decision") return selectedAdvisors;
+        const list = MODES[mode]?.advisors || [];
+        return modeAdvisorSelections[mode] || list.map(a => a.id);
+      }, [selectedAdvisors, modeAdvisorSelections]);
+
+      const setModeSelected = useCallback((mode, ids) => {
+        if (mode === "decision") { setSelectedAdvisors(ids); return; }
+        const next = { ...modeAdvisorSelections, [mode]: ids };
+        setModeAdvisorSelections(next);
+        localStorage.setItem("council-mode-advisor-selections", JSON.stringify(next));
+      }, [modeAdvisorSelections]);
+
+      const safeAdvisors = useMemo(() => {
+        const list = activeMode === "decision" ? ADVISORS : (MODES[activeMode]?.advisors || []);
+        const sel  = getModeSelected(activeMode);
+        const filtered = list.filter(a => sel.includes(a.id));
+        return filtered.length >= 2 ? filtered : list.slice(0, 2);
+      }, [activeMode, getModeSelected]);
 
       // ── Mobile detection ─────────────────────────────────────────────
       const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
@@ -2254,7 +2255,7 @@ Do not describe what you're doing. Just produce the writing.`,
         setError(null);
         setShowFollowUpInput(false);
         const priorTurns       = turns;          // snapshot at dispatch time
-        const runAdvisors      = activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount);
+        const runAdvisors      = safeAdvisors; // per-mode selection for all modes
         const runAttachedFiles = attachedFiles;  // snapshot files at dispatch time
 
         try {
@@ -2356,7 +2357,9 @@ Do not describe what you're doing. Just produce the writing.`,
                   onClose={() => setShowSettings(false)}
                   userContext={userContext} onUserContext={setUserContext}
                   contextInput={contextInput} onContextInput={setContextInput}
-                  selectedAdvisors={selectedAdvisors} onSelectedAdvisors={setSelectedAdvisors}
+                  modeAdvisors={activeMode === "decision" ? ADVISORS : (MODES[activeMode]?.advisors || [])}
+                  modeSelected={getModeSelected(activeMode)}
+                  onModeSelected={ids => setModeSelected(activeMode, ids)}
                   activeMode={activeMode} />
               )}
 
@@ -2440,7 +2443,7 @@ Do not describe what you're doing. Just produce the writing.`,
 
                     {/* Advisor pills */}
                     {(() => {
-                      const displayAdvisors = activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount);
+                      const displayAdvisors = safeAdvisors;
                       return (
                         <div>
                           <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Your council</p>
@@ -2483,7 +2486,7 @@ Do not describe what you're doing. Just produce the writing.`,
                     {phase === "advisors" && (
                       <div>
                         <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisors deliberating</p>
-                        {(activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount)).map(a => (
+                        {safeAdvisors.map(a => (
                           <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors"
                             isSpotlit={!spotlitAdvisor || spotlitAdvisor === a.id || !!advisorDone[a.id]} />
                         ))}
