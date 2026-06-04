@@ -242,7 +242,7 @@
     // chairman: raised to allow full plans and step-by-step instructions.
     //   Haiku  1800 ≈ 1350 words — enough for a detailed multi-step plan.
     //   Premium 1400 ≈ 1050 words — Sonnet/Opus write more densely.
-    const TOKEN_BUDGETS = { advisor: 120, review: 150, chairmanHaiku: 1800, chairmanPremium: 1400 };
+    const TOKEN_BUDGETS = { advisor: 120, review: 160, chairmanHaiku: 900, chairmanPremium: 700 };
 
     // Chars of each advisor response forwarded to the peer reviewer and chairman.
     // Haiku is cheap — pass full text. Sonnet/Opus are expensive — 180-char
@@ -321,6 +321,197 @@
     // pushes them to take positions and produce non-obvious synthesis rather
     // than summarising what the advisors said.
     const CHAIRMAN_SYSTEM = "You are the Chairman of an LLM Council. You are a decision-maker, not a reporter. Your role: synthesize conflicting expert views into decisive, specific action. Take positions. Resolve disagreements by naming who is right and exactly why. Your verdict must contain at least one insight that no single advisor produced. Be specific enough to act on — no platitudes, no hedging. In multi-turn conversations, build forward; never restate what prior turns already established.";
+
+    /* ── MODES ──────────────────────────────────────────────────────────
+       Each mode supplies its own advisors array and chairmanSystem.
+       Decision mode reuses the existing ADVISORS + CHAIRMAN_SYSTEM.       */
+    const MODES = {
+      decision: {
+        id: "decision", label: "Decision", icon: "ti-scale",
+        tagline: "Should I do this?",
+        description: "Stress-test a decision with five independent perspectives.",
+        inputPlaceholder: "Describe the decision you're facing. Include relevant context.",
+        advisors: ADVISORS,
+        chairmanSystem: CHAIRMAN_SYSTEM,
+        inputMode: "single", outputMode: "verdict",
+      },
+      writing: {
+        id: "writing", label: "Writing Coach", icon: "ti-pencil",
+        tagline: "Make this better.",
+        description: "Submit a piece of writing. Five editors tear it apart constructively.",
+        inputPlaceholder: "Paste your writing below. Optionally add a note about your goal or audience at the top.",
+        advisors: [
+          { id: "clarity",    name: "The Clarity Editor",  accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-eye",        tagline: "Is every sentence earning its place?",  system: "You are The Clarity Editor reviewing submitted writing. Find sentences that are vague, redundant, or doing nothing. Be surgical. Point to specific lines. 100 words max. No preamble." },
+          { id: "argument",   name: "Argument Auditor",    accent: "var(--red)",    tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-shield",     tagline: "Does the logic hold?",                  system: "You are the Argument Auditor reviewing submitted writing. Find logical gaps, unsupported claims, and weak transitions. What would a skeptical reader push back on? 100 words max. No preamble." },
+          { id: "engagement", name: "The Reader",          accent: "var(--green)",  tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-user",       tagline: "Would a real person keep reading?",     system: "You are The Reader — a busy, skeptical audience member reviewing submitted writing. Where did you almost stop reading? What pulled you in? What felt like filler? 100 words max. No preamble." },
+          { id: "tone",       name: "Tone Checker",        accent: "var(--purple)", tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-mood-smile", tagline: "Does the voice match the intent?",      system: "You are the Tone Checker reviewing submitted writing. Is the register (formal/casual/urgent) consistent and appropriate? Flag any tonal inconsistencies. 100 words max. No preamble." },
+          { id: "structure",  name: "Structure Critic",    accent: "var(--blue)",   tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-layout",     tagline: "Is the architecture sound?",            system: "You are the Structure Critic reviewing submitted writing. Evaluate the opening, flow, and closing. Is the most important point in the right place? What's buried that should lead? 100 words max. No preamble." },
+        ],
+        chairmanSystem: `You are the Editorial Chairman synthesizing feedback from five writing editors.
+Output your response in this exact format:
+
+## What's Working
+[1-2 sentences on genuine strengths — be specific, not generic praise]
+
+## Top Three Fixes
+[Numbered list of the three highest-impact changes the writer should make, with brief rationale for each]
+
+## One Line Rewrite
+[Pick the single weakest sentence from the submitted text and rewrite it as an example]
+
+Be direct. Prioritize. Do not list every problem — only what matters most.`,
+        inputMode: "document", outputMode: "editorial",
+      },
+      code: {
+        id: "code", label: "Code Review", icon: "ti-code",
+        tagline: "What did I miss?",
+        description: "Paste code. Five specialists find what you missed.",
+        inputPlaceholder: "Paste your code here. Optionally add a comment at the top describing what it does and the language/framework.",
+        advisors: [
+          { id: "security",     name: "Security Auditor",     accent: "var(--red)",    tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-lock",     tagline: "What can be exploited?",          system: "You are a Security Auditor reviewing submitted code. Find injection risks, authentication gaps, data exposure, and insecure defaults. Be specific — line-level if possible. 100 words max. No preamble." },
+          { id: "performance",  name: "Performance Analyst",  accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-bolt",     tagline: "Where does this slow down?",      system: "You are a Performance Analyst reviewing submitted code. Find N+1 queries, unnecessary re-renders, memory leaks, blocking calls, and algorithmic inefficiencies. 100 words max. No preamble." },
+          { id: "readability",  name: "Readability Judge",    accent: "var(--green)",  tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-eye",      tagline: "Can the next dev follow this?",   system: "You are the Readability Judge reviewing submitted code. Find poor naming, missing comments on non-obvious logic, functions doing too much, and confusing control flow. 100 words max. No preamble." },
+          { id: "architecture", name: "Architecture Thinker", accent: "var(--purple)", tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-building", tagline: "Will this scale or break?",        system: "You are the Architecture Thinker reviewing submitted code. Assess coupling, separation of concerns, testability, and extensibility. Will this be a pain to modify in six months? 100 words max. No preamble." },
+          { id: "edgecases",    name: "Edge Case Hunter",     accent: "var(--blue)",   tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-bug",      tagline: "What breaks this?",               system: "You are the Edge Case Hunter reviewing submitted code. Find null/undefined assumptions, off-by-one errors, race conditions, empty inputs, type coercion surprises, and missing error handling. 100 words max. No preamble." },
+        ],
+        chairmanSystem: `You are the Lead Reviewer synthesizing five code review perspectives.
+Output your response in this exact format:
+
+## Critical (Fix Before Merge)
+[Bulleted list — only genuine blockers: security holes, data loss risks, broken logic]
+
+## Important (Fix Soon)
+[Bulleted list — real issues that aren't blockers but matter for production quality]
+
+## Quick Wins
+[Bulleted list — small changes with outsized readability/maintenance benefit]
+
+## Verdict
+[1 sentence: is this code ready to ship, needs minor work, or needs significant rework?]
+
+Be specific. Reference the actual code where possible. Do not repeat what every reviewer said — synthesize.`,
+        inputMode: "document", outputMode: "review",
+      },
+      redteam: {
+        id: "redteam", label: "Red Team", icon: "ti-sword",
+        tagline: "Destroy my idea.",
+        description: "Submit a plan or argument. Five adversaries find every weakness.",
+        inputPlaceholder: "Describe your plan, argument, or idea in as much detail as you can. The more specific, the sharper the attack.",
+        advisors: [
+          { id: "logic",       name: "Logic Attacker",       accent: "var(--red)",    tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-x",                  tagline: "Your reasoning is broken here",   system: "You are attacking a submitted plan or argument. Find the logical fallacies, circular reasoning, and unfounded leaps. Quote the weak claim and explain why it doesn't hold. 100 words max. No preamble." },
+          { id: "data",        name: "Evidence Skeptic",     accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-chart-bar",          tagline: "Where's the proof?",              system: "You are attacking a submitted plan or argument. Challenge every assumption presented as fact. What data is missing? What would need to be true for this to work, and why might it not be? 100 words max. No preamble." },
+          { id: "incentives",  name: "Incentive Analyst",    accent: "var(--purple)", tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-users",              tagline: "Who has reason to fight this?",   system: "You are attacking a submitted plan or argument. Map the stakeholders who benefit from this failing. What incentive structures work against this plan? 100 words max. No preamble." },
+          { id: "secondorder", name: "Second-Order Thinker", accent: "var(--green)",  tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-arrows-right-left",  tagline: "And then what happens?",          system: "You are attacking a submitted plan or argument. What are the unintended second and third-order consequences? What does success look like and is it actually good? 100 words max. No preamble." },
+          { id: "history",     name: "Historical Skeptic",   accent: "var(--blue)",   tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-history",            tagline: "This has been tried before",      system: "You are attacking a submitted plan or argument. Find analogous historical failures. What similar attempts failed, why did they fail, and why would this be different? 100 words max. No preamble." },
+        ],
+        chairmanSystem: `You are the Red Team Commander synthesizing five attack perspectives on a submitted plan.
+Output your response in this exact format:
+
+## Strongest Attack
+[The single most lethal objection — the one that, if true, kills the plan. Be specific.]
+
+## Systemic Weaknesses
+[2-3 patterns that appear across multiple attacks — structural problems, not one-off nitpicks]
+
+## What Would Need to Be True
+[A short bulleted list: the conditions that would need to hold for this plan to succeed despite the attacks]
+
+## The Verdict
+[Is this plan defensible with modifications, or fatally flawed at its core?]
+
+Do not soften the attacks. The point is to find what breaks this.`,
+        inputMode: "document", outputMode: "redteam",
+      },
+      brainstorm: {
+        id: "brainstorm", label: "Brainstorm", icon: "ti-bulb",
+        tagline: "Where could this go?",
+        description: "Submit a seed idea. Five thinkers expand it in different directions.",
+        inputPlaceholder: "Describe your seed idea, topic, or starting point. What are you exploring?",
+        advisors: [
+          { id: "adjacent",    name: "Adjacent Possible",       accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-arrows-right",  tagline: "One step further than obvious",          system: "You are an idea expander. Given a seed idea, suggest 3 adjacent directions that are one logical step beyond the obvious. Concrete, distinct, not generic. 100 words max. No preamble." },
+          { id: "inversion",   name: "The Inverter",            accent: "var(--red)",    tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-flip-vertical", tagline: "What if it worked backwards?",           system: "You are an idea inverter. Given a seed idea, suggest 3 directions that invert, negate, or reverse the original assumption. Sometimes the opposite is more interesting. 100 words max. No preamble." },
+          { id: "crossdomain", name: "Cross-Domain Borrower",   accent: "var(--purple)", tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-exchange",      tagline: "Another field already solved this",      system: "You are a cross-domain thinker. Given a seed idea, suggest 3 directions that borrow from completely unrelated fields — biology, architecture, game design, etc. Fresh analogies only. 100 words max. No preamble." },
+          { id: "scale",       name: "Scale Shifter",           accent: "var(--green)",  tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-maximize",      tagline: "Smaller or 1000x bigger",                system: "You are a scale thinker. Given a seed idea, suggest 3 directions: one that makes it radically smaller/more personal, one that makes it global/systemic, one that applies it to an unexpected scale. 100 words max. No preamble." },
+          { id: "timing",      name: "The Futurist",            accent: "var(--blue)",   tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-clock",         tagline: "10 years from now this looks like...",   system: "You are a futures thinker. Given a seed idea, suggest 3 directions based on how this idea might evolve: what it becomes in 2 years, 5 years, and what it might replace. 100 words max. No preamble." },
+        ],
+        chairmanSystem: `You are the Synthesis Director for a brainstorm session.
+Output your response in this exact format:
+
+## Most Promising Direction
+[The single idea thread across all advisors with the most potential. Why this one.]
+
+## Unexpected Combination
+[Two advisor ideas that, combined, produce something more interesting than either alone. Describe the mashup.]
+
+## The Wild Card
+[The most unconventional suggestion from all advisors — the one worth exploring precisely because it's uncomfortable]
+
+## Next Three Questions
+[The three questions the person should now be asking to develop this further]
+
+Be generative, not evaluative. The goal is expansion, not filtering.`,
+        inputMode: "single", outputMode: "brainstorm",
+      },
+      generate: {
+        id: "generate", label: "Generate", icon: "ti-wand",
+        tagline: "Write this for me.",
+        description: "Describe what you need. Five writers produce different versions. Chairman delivers the best merged result.",
+        inputPlaceholder: "Describe what you want written. Include: type of content, audience, tone, length goal, and any constraints.",
+        advisors: [
+          { id: "direct",          name: "The Minimalist",        accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  icon: "ti-minus",       tagline: "Say it in half the words",              system: "You are The Minimalist writer. Given a content brief, produce a draft version that is direct, concise, and stripped of filler. No fluff, no hedging. Every word earns its place. Produce the draft only, no preamble." },
+          { id: "storyteller",     name: "The Storyteller",       accent: "var(--green)",  tint: "var(--green-tint)",  ring: "var(--green-ring)",  icon: "ti-book",        tagline: "Lead with a human moment",              system: "You are The Storyteller writer. Given a content brief, produce a draft that opens with a specific scene, moment, or example before making the broader point. Make it feel real. Produce the draft only, no preamble." },
+          { id: "authoritative",   name: "The Authority",         accent: "var(--blue)",   tint: "var(--blue-tint)",   ring: "var(--blue-ring)",   icon: "ti-certificate", tagline: "Write like you've done this 20 years",  system: "You are The Authority writer. Given a content brief, produce a draft that conveys deep expertise and confidence. Precise language, strong claims, no hedging. Produce the draft only, no preamble." },
+          { id: "conversational",  name: "The Conversationalist", accent: "var(--purple)", tint: "var(--purple-tint)", ring: "var(--purple-ring)", icon: "ti-message",     tagline: "Write like a smart friend",             system: "You are The Conversationalist writer. Given a content brief, produce a draft in a warm, direct, slightly informal register — like a thoughtful person explaining something they care about. Produce the draft only, no preamble." },
+          { id: "provocateur",     name: "The Provocateur",       accent: "var(--red)",    tint: "var(--red-tint)",    ring: "var(--red-ring)",    icon: "ti-flame",       tagline: "Say the uncomfortable true thing",      system: "You are The Provocateur writer. Given a content brief, produce a draft that takes a bold stance, challenges conventional wisdom, or frames the topic in a way that surprises. Produce the draft only, no preamble." },
+        ],
+        chairmanSystem: `You are the Master Editor synthesizing five draft versions of a piece of writing.
+Your job is NOT to summarize the drafts — it is to PRODUCE the best possible final version.
+
+Study all five drafts. Then output:
+
+## Final Draft
+[The actual merged, polished final version. Pull the best opening from one draft, the strongest structural move from another, the most precise phrasing from a third. This should be a real, complete, usable piece of writing — not a commentary on the drafts.]
+
+## What You Took From Each
+[One-line note per advisor explaining which element you borrowed from their draft]
+
+Do not describe what you're doing. Just produce the writing.`,
+        inputMode: "single", outputMode: "generation",
+      },
+    };
+
+    const TEMPLATES = {
+      decision:  [
+        "Should I take this job offer or stay and negotiate a raise?",
+        "I'm thinking of pivoting my business from X to Y — what am I missing?",
+        "Should I bring on a co-founder or stay solo?",
+      ],
+      writing:   [
+        "Review this email before I send it to my CEO.",
+        "Edit this blog post intro — it's not pulling people in.",
+        "Review this proposal — I need to win this client.",
+      ],
+      code:      [
+        "Review this API endpoint before I ship it.",
+        "Review this database query — performance is bad under load.",
+        "Review this authentication flow for security issues.",
+      ],
+      redteam:   [
+        "Red team my go-to-market plan.",
+        "Attack my argument for why we should build this feature.",
+        "Find every reason my startup will fail.",
+      ],
+      brainstorm: [
+        "I want to build a tool for remote teams. Expand this.",
+        "I'm thinking about a community around X. Where could this go?",
+        "Seed idea: making documentation actually get read.",
+      ],
+      generate:  [
+        "Write a LinkedIn post announcing I just launched X.",
+        "Write a cold outreach email to a potential enterprise client.",
+        "Write an executive summary for this project proposal.",
+      ],
+    };
 
     /* ── STREAMING ──────────────────────────────────────────────────────
        cachedText, when provided, becomes a leading ephemeral content block.
@@ -424,24 +615,30 @@
       return { verdictText: rawText, diagramCode: null };
     }
 
-    // Serializes all completed turns into a single string used as the cached
-    // prefix for follow-up API calls. Including the full advisor texts and peer
-    // review (not just the verdict) ensures the block reliably exceeds Anthropic's
-    // 1024-token minimum required for ephemeral cache eligibility. On a warm
-    // cache this entire block costs zero input tokens across all parallel advisor
-    // calls in the next turn.
-    function buildPriorTurnsContext(completedTurns) {
-      if (!completedTurns.length) return null;
-      return completedTurns.map((t, i) => {
-        const advisorBlock = ADVISORS.map(a => `**${a.name}:** ${t.advisorTexts[a.id] || ""}`).join("\n\n");
-        return [
-          `=== Turn ${i + 1} ===`,
-          `Question: ${t.prompt}`,
-          `\nAdvisor Responses:\n${advisorBlock}`,
-          `\nPeer Review:\n${t.peerReview || ""}`,
-          `\nChairman Verdict:\n${t.verdict || ""}`,
-        ].join("\n");
-      }).join("\n\n---\n\n");
+    // Serializes user context + completed turns into a single cached prefix.
+    // User context is prepended first so it's always in scope for every call.
+    // Including full advisor texts ensures the block reliably exceeds Anthropic's
+    // 1024-token minimum for ephemeral cache eligibility. On a warm cache this
+    // entire block costs zero input tokens across all parallel advisor calls.
+    function buildSessionContext(userContext, completedTurns) {
+      const parts = [];
+      if (userContext && userContext.trim()) {
+        parts.push(`=== User Context ===\n${userContext.trim()}`);
+      }
+      if (completedTurns.length) {
+        const turnText = completedTurns.map((t, i) => {
+          const advisorBlock = Object.entries(t.advisorTexts).map(([id, txt]) => `**${id}:** ${txt}`).join("\n\n");
+          return [
+            `=== Turn ${i + 1} ===`,
+            `Question: ${t.prompt}`,
+            `\nAdvisor Responses:\n${advisorBlock}`,
+            `\nPeer Review:\n${t.peerReview || ""}`,
+            `\nChairman Verdict:\n${t.verdict || ""}`,
+          ].join("\n");
+        }).join("\n\n---\n\n");
+        parts.push(turnText);
+      }
+      return parts.length ? parts.join("\n\n===\n\n") : null;
     }
 
     function relativeTime(ts) {
@@ -618,9 +815,62 @@
       );
     }
 
+    /* ── MODE SELECTOR ─────────────────────────────────────────────── */
+
+    function ModeSelector({ activeMode, onSelect }) {
+      return (
+        <div style={{ marginBottom: 24 }}>
+          <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Council mode</p>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+            {Object.values(MODES).map(mode => (
+              <button
+                key={mode.id}
+                onClick={() => onSelect(mode.id)}
+                style={{
+                  flexShrink: 0, padding: "10px 14px", borderRadius: 8,
+                  border: `1px solid ${activeMode === mode.id ? "var(--amber-ring)" : "var(--bd)"}`,
+                  background: activeMode === mode.id ? "var(--amber-tint)" : "var(--bg2)",
+                  cursor: "pointer", textAlign: "left", transition: "all .15s", minWidth: 130,
+                }}
+              >
+                <i className={`ti ${mode.icon}`} style={{ fontSize: 16, color: activeMode === mode.id ? "var(--amber)" : "var(--t3)", display: "block", marginBottom: 6 }} />
+                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: "0 0 2px" }}>{mode.label}</p>
+                <p style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--mono)", letterSpacing: "0.5px", margin: 0 }}>{mode.tagline}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function TemplateRow({ mode, onSelect }) {
+      const templates = TEMPLATES[mode] || [];
+      if (!templates.length) return null;
+      return (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {templates.map((t, i) => (
+            <button
+              key={i}
+              onClick={() => onSelect(t)}
+              style={{
+                padding: "5px 10px", fontSize: 11, borderRadius: 20,
+                background: "var(--bg3)", border: "1px solid var(--bd)",
+                color: "var(--t3)", cursor: "pointer",
+                fontFamily: "var(--sans)", transition: "color .15s, border-color .15s",
+                whiteSpace: "nowrap", overflow: "hidden",
+                maxWidth: 240, textOverflow: "ellipsis",
+              }}
+            >
+              {t.length > 40 ? t.slice(0, 40) + "…" : t}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
     /* ── SETTINGS PANEL ─────────────────────────────────────────────── */
 
-    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, generateDiagrams, onGenerateDiagrams, onBudgetMode, onClearKey, onClose }) {
+    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, generateDiagrams, onGenerateDiagrams, onBudgetMode, onClearKey, onClose, userContext, onUserContext }) {
       const estimatedCost = estimateCostPerTurn(model, fastAdvisors, advisorCount, peerReviewEnabled, generateDiagrams);
       const isBudgetMode  = model === FAST_MODEL && fastAdvisors && advisorCount <= 3 && !peerReviewEnabled;
       const isUnderPenny  = estimatedCost < 0.01;
@@ -754,6 +1004,29 @@
                 />
               </div>
 
+              {/* ── My Context ────────────────────────────────── */}
+              <div style={{ borderTop: "1px solid var(--bd)", paddingTop: 20, marginBottom: 24 }}>
+                <SectionLabel>My context</SectionLabel>
+                <textarea
+                  value={userContext}
+                  onChange={e => {
+                    onUserContext(e.target.value);
+                    localStorage.setItem("council-user-context", e.target.value);
+                  }}
+                  placeholder="Tell the council who you are. Role, background, priorities, constraints, communication preferences. Sent with every session."
+                  style={{
+                    width: "100%", padding: "10px 12px", marginBottom: 6,
+                    background: "var(--bg3)", border: "1px solid var(--bd)",
+                    borderRadius: 6, color: "var(--t1)", fontSize: 12,
+                    lineHeight: 1.65, resize: "vertical", minHeight: 80,
+                    fontFamily: "var(--sans)", outline: "none",
+                  }}
+                />
+                <p style={{ fontSize: 11, color: "var(--t3)", margin: 0 }}>
+                  Stored in your browser. Cached by Anthropic for cost efficiency on repeated use.
+                </p>
+              </div>
+
               {/* ── Account ───────────────────────────────────── */}
               <div style={{ borderTop: "1px solid var(--bd)", paddingTop: 20 }}>
                 <SectionLabel>API Key</SectionLabel>
@@ -868,6 +1141,17 @@
       );
     }
 
+    function detectConsensus(verdictText) {
+      const splitSignals = ["disagree", "clash", "contrast", "split", "diverge", "opposite", "however", "but"];
+      const alignSignals = ["agree", "consensus", "consistent", "all", "unanimous", "align"];
+      const text       = (verdictText || "").toLowerCase();
+      const splitScore = splitSignals.filter(w => text.includes(w)).length;
+      const alignScore = alignSignals.filter(w => text.includes(w)).length;
+      if (splitScore >= 3) return { label: "Council divided",  color: "var(--red)",   tint: "var(--red-tint)",   ring: "var(--red-ring)",   icon: "ti-arrows-right-left" };
+      if (alignScore >= 3) return { label: "Strong consensus", color: "var(--green)", tint: "var(--green-tint)", ring: "var(--green-ring)", icon: "ti-check" };
+      return               { label: "Mixed views",             color: "var(--amber)", tint: "var(--amber-tint)", ring: "var(--amber-ring)", icon: "ti-wave-sine" };
+    }
+
     /* ── TURN CARD ──────────────────────────────────────────────────────
        Renders a single completed council turn. Handles its own accordion
        open/close state via a turn-scoped key prefix so multiple turns in a
@@ -902,6 +1186,22 @@
           </div>
 
           <Divider label="Chairman's verdict" />
+
+          {(() => {
+            const signal = detectConsensus(turn.verdict);
+            return (
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "5px 12px", marginBottom: 20,
+                background: signal.tint,
+                border: `1px solid ${signal.ring}`,
+                borderRadius: 20,
+              }}>
+                <i className={`ti ${signal.icon}`} style={{ fontSize: 12, color: signal.color }} />
+                <span className="tag" style={{ color: signal.color, fontSize: 9 }}>{signal.label}</span>
+              </div>
+            );
+          })()}
 
           <VerdictSection label="Where the council agrees"  icon="ti-check"          accent="var(--green)"  tint="var(--green-tint)"  ring="var(--green-ring)"  text={sec.agrees}  />
           <VerdictSection label="Where the council clashes" icon="ti-arrows-exchange" accent="var(--red)"    tint="var(--red-tint)"    ring="var(--red-ring)"    text={sec.clashes} />
@@ -953,13 +1253,17 @@
 
           <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Advisor responses</p>
           <div style={{ marginBottom: 16 }}>
-            {ADVISORS.map(a => (
-              <Accordion key={a.id} label={a.name} sub={a.tagline} accent={a.accent} tint={a.tint} ring={a.ring}
-                isOpen={!!openPanels[`${prefix}-${a.id}`]}
-                onToggle={() => onTogglePanel(`${prefix}-${a.id}`)}>
-                {turn.advisorTexts[a.id] || ""}
-              </Accordion>
-            ))}
+            {Object.entries(turn.advisorTexts).map(([id, txt]) => {
+              const allAdvisors = Object.values(MODES).flatMap(m => m.advisors);
+              const a = allAdvisors.find(x => x.id === id) || { id, name: id, tagline: "", accent: "var(--t3)", tint: "var(--bg3)", ring: "var(--bd)" };
+              return (
+                <Accordion key={id} label={a.name} sub={a.tagline} accent={a.accent} tint={a.tint} ring={a.ring}
+                  isOpen={!!openPanels[`${prefix}-${id}`]}
+                  onToggle={() => onTogglePanel(`${prefix}-${id}`)}>
+                  {txt}
+                </Accordion>
+              );
+            })}
           </div>
           {turn.peerReview && (
             <Accordion label="Consolidated peer review" sub="cross-examination" accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)"
@@ -1043,6 +1347,14 @@
       const [peerReviewEnabled,  setPeerReviewEnabled]  = useState(() => localStorage.getItem("council-review") !== "false");
       const [generateDiagrams,   setGenerateDiagrams]   = useState(false);
       const [showSettings,       setShowSettings]       = useState(false);
+      const [activeMode,         setActiveMode]         = useState("decision");
+      const [contextInput,       setContextInput]       = useState("");
+      const [showContextPanel,   setShowContextPanel]   = useState(false);
+      const [userContext,        setUserContext]        = useState(() => localStorage.getItem("council-user-context") || "");
+
+      const currentMode        = MODES[activeMode] || MODES.decision;
+      const modeAdvisors       = currentMode.advisors;
+      const activeChairmanSystem = currentMode.chairmanSystem;
 
       // ── Sidebar state ────────────────────────────────────────────────
       const [sidebarOpen,     setSidebarOpen]     = useState(true);
@@ -1078,7 +1390,9 @@
       // This replays a complete thread without any API call by restoring the
       // saved turns array directly into state. The user can then add follow-ups.
       const handleSelectSession = useCallback((session) => {
+        const savedMode = session.turns?.[0]?.mode || "decision";
         setTurns(session.turns || []);
+        setActiveMode(savedMode);
         setActiveDbSessionId(session.id);
         setActiveSessionId(session.id);
         setPhase("conversation");
@@ -1106,7 +1420,14 @@
       // are serialized into a cached prefix block so each new turn costs only
       // the delta in tokens rather than re-encoding the full thread history.
       const executeCouncilTurn = useCallback(async (newPrompt, priorTurns) => {
-        const priorContext = buildPriorTurnsContext(priorTurns);
+        const priorContext = buildSessionContext(userContext, priorTurns);
+
+        // Prepend background context when the user has added it. Stored
+        // separately from `newPrompt` so the clean question is what gets saved
+        // to session history and shown in the UI.
+        const userMsg = contextInput.trim()
+          ? `BACKGROUND MATERIAL:\n${contextInput.trim()}\n\n---\n\nQUESTION / TASK:\n${newPrompt}`
+          : newPrompt;
 
         // The question wrapper pushes advisors toward specificity rather than
         // generic commentary. "Name things" is deliberate — it forces commitment
@@ -1114,31 +1435,34 @@
         // The base question. Each advisor's lens is prepended per-call below
         // so the shared system prompt can be cached across all five calls.
         const baseQuestion = priorContext
-          ? `Prior context above. Follow-up question: ${newPrompt}\n\nBuild only on what's new — no repetition. Name specific things.`
-          : `Question for the council:\n\n---\n${newPrompt}\n---\n\nName specific things — failure modes, opportunities, actions, contradictions. No generic advice.`;
+          ? `Prior context above. Follow-up question: ${userMsg}\n\nBuild only on what's new — no repetition. Name specific things.`
+          : activeMode === "decision"
+            ? `Question for the council:\n\n---\n${userMsg}\n---\n\nName specific things — failure modes, opportunities, actions, contradictions. No generic advice.`
+            : `Input for review:\n\n---\n${userMsg}\n---\n\nReview it through your specific lens. Be specific and direct.`;
 
         /* Phase 1: Active advisors in parallel ────────────────────────
            Sliced to `advisorCount` so users can trade depth for cost.
-           TOKEN_BUDGETS.advisor (200) gives a 1.5× buffer over the 100-word
-           (~130-token) target — half the previous ceiling.                */
+           TOKEN_BUDGETS.advisor (120) enforces the 100-word target; model
+           fills available space so a tight ceiling is the real control.   */
         setPhase("advisors");
         setLive({}); setAdvisorDone({});
         const collectedTexts = {};
-        const activeAdvisors = ADVISORS.slice(0, advisorCount);
+        const activeAdvisors = modeAdvisors.slice(0, advisorCount);
 
         // Using SHARED_ADVISOR_SYSTEM for all five calls so calls 2–5 get a
         // system-block cache hit. Each advisor's lens is injected into the user
         // message to preserve the distinct analytical perspective.
-        await Promise.all(activeAdvisors.map(advisor =>
-          collect(
-            SHARED_ADVISOR_SYSTEM,
-            `Your lens: ${advisor.lens}\n\n${baseQuestion}`,
+        await Promise.all(activeAdvisors.map(advisor => {
+          const advSystem = advisor.system || SHARED_ADVISOR_SYSTEM;
+          const advUser   = advisor.lens ? `Your lens: ${advisor.lens}\n\n${baseQuestion}` : baseQuestion;
+          return collect(
+            advSystem, advUser,
             apiKey, advisorModel,
             full => { collectedTexts[advisor.id] = full; setLive(p => ({ ...p, [advisor.id]: full })); },
             priorContext,
             TOKEN_BUDGETS.advisor
-          ).then(() => setAdvisorDone(p => ({ ...p, [advisor.id]: true })))
-        ));
+          ).then(() => setAdvisorDone(p => ({ ...p, [advisor.id]: true })));
+        }));
 
         /* Phase 2: Consolidated peer review (optional) ────────────────
            Skipped entirely when peerReviewEnabled is false — eliminates one
@@ -1162,7 +1486,7 @@
           // actual tension the chairman needs to arbitrate.
           peerReviewText = await collect(
             "You are an impartial Council Analyst. Your job is to find errors in reasoning, not just missing topics. Be precise and critical. No preamble.",
-            `Question: "${newPrompt}"\n\n1. Which advisor's logic is most sound? (letter + one sentence why)\n2. Which advisor made an unsupported leap or factual error? (letter + what specifically)\n3. What is the single most important thing none of them addressed?\n4. What is the key tension the Chairman must explicitly resolve?\n\nBe specific. Identify errors, not just gaps.`,
+            `Question: "${newPrompt}"\n\n1. Which advisor's logic is most sound? (letter + one sentence why)\n2. Which advisor made an unsupported leap or factual error? (letter + what specifically)\n3. What is the single most important thing none of them addressed?\n4. What is the key tension the Chairman must explicitly resolve?\n\nBe specific. Identify errors, not just gaps.${contextInput.trim() ? `\n\nContext provided: ${contextInput.trim().slice(0, 300)}${contextInput.trim().length > 300 ? "…" : ""}` : ""}`,
             apiKey, advisorModel,
             full => setLiveRev(full),
             reviewCachePrefix,
@@ -1185,7 +1509,7 @@
           return `**${a.name}:** ${snippet}`;
         }).join("\n");
         const chairmanTokenBudget = model === FAST_MODEL ? TOKEN_BUDGETS.chairmanHaiku : TOKEN_BUDGETS.chairmanPremium;
-        const fullTranscript = `${priorContext ? priorContext + "\n\n---\n\n" : ""}CURRENT QUESTION:\n${newPrompt}\n\nADVISOR RESPONSES:\n${chairmanAdvisorBlock}\n\nPEER REVIEW:\n${peerReviewText}`;
+        const fullTranscript = `${priorContext ? priorContext + "\n\n---\n\n" : ""}CURRENT QUESTION:\n${userMsg}\n\nADVISOR RESPONSES:\n${chairmanAdvisorBlock}\n\nPEER REVIEW:\n${peerReviewText}`;
 
         // When diagrams are enabled the instruction is mandatory — the model MUST
         // produce a diagram. The "Only include if…" hedge is intentionally absent
@@ -1201,8 +1525,12 @@
         // Recommendation expands to match the depth the question warrants.
         const synthesisPrompt = `Produce an in-depth, actionable verdict using exactly these five section headers. Name things. Take positions. Commit to claims.\n\n## Where the Council Agrees\nState the consensus as a concrete claim. Say in one sentence whether that consensus is correct or dangerously incomplete.\n\n## Where the Council Clashes\nName the specific disagreement. Take a side — say which advisor is right and exactly why. Resolve the tension; do not present both sides neutrally.\n\n## Blind Spots the Council Caught\nName the single most important insight from the peer review that changes the picture.\n\n## The Recommendation\nProduce a complete, detailed recommendation. Include step-by-step instructions, a phased plan, or a decision framework — whatever the complexity of the question demands. Name specific actions, owners, sequencing, and trade-offs. Do not compress for brevity. If the question requires a full plan, write the full plan.\n\n## The One Thing to Do First\nThe single highest-leverage first action. Two to three sentences: what to do, why it unlocks everything else, and what done looks like.${diagramInstruction}`;
 
+        const synthesisUserMsg = activeMode === "decision"
+          ? synthesisPrompt
+          : "Synthesize the advisor feedback above into your structured verdict. Follow the format defined in your instructions exactly.";
+
         const rawVerdict = await collect(
-          CHAIRMAN_SYSTEM, synthesisPrompt, apiKey, model,
+          activeChairmanSystem, synthesisUserMsg, apiKey, model,
           full => setLiveVerdict(full),
           fullTranscript, // large cached block — grows cheaply with thread length
           chairmanTokenBudget
@@ -1210,8 +1538,8 @@
 
         const { verdictText, diagramCode } = splitVerdictAndDiagram(rawVerdict);
 
-        return { prompt: newPrompt, advisorTexts: collectedTexts, peerReview: peerReviewText, verdict: verdictText, diagramCode };
-      }, [apiKey, model, advisorModel, advisorCount, peerReviewEnabled, generateDiagrams]);
+        return { prompt: newPrompt, mode: activeMode, advisorTexts: collectedTexts, peerReview: peerReviewText, verdict: verdictText, diagramCode };
+      }, [apiKey, model, advisorModel, advisorCount, peerReviewEnabled, generateDiagrams, activeMode, modeAdvisors, activeChairmanSystem, contextInput, userContext]);
 
       // ── Unified turn runner ──────────────────────────────────────────
       // Handles both the first turn (creates a new DB session) and follow-up
@@ -1256,20 +1584,36 @@
       }, [followUpInput, isProcessing, runTurn]);
 
       const exportMarkdown = useCallback(() => {
-        const md = turns.map((t, i) => [
-          i === 0 ? `# Council Session\n\n` : `\n---\n\n## Follow-up · Turn ${i + 1}\n\n`,
-          `**Question:** ${t.prompt}\n\n`,
-          t.verdict || "",
-          `\n\n### Advisor Transcripts\n`,
-          ...ADVISORS.map(a => `\n#### ${a.name}\n${t.advisorTexts[a.id] || ""}`),
-          `\n\n### Peer Review\n\n${t.peerReview || ""}`,
-        ].join("")).join("\n\n");
-        const blob = new Blob([md], { type: "text/markdown" });
+        const activeSession  = sessions.find(s => s.id === activeSessionId);
+        const sessionTitle   = activeSession?.title || turns[0]?.prompt?.slice(0, 35) || "Session";
+        const sessionDate    = activeSession ? new Date(activeSession.timestamp).toLocaleString() : new Date().toLocaleString();
+        const modeName       = MODES[activeMode]?.label || "Decision";
+        const allAdvisors    = Object.values(MODES).flatMap(m => m.advisors);
+        const advisorName    = id => allAdvisors.find(a => a.id === id)?.name || id;
+
+        const lines = [
+          `# Council Session: ${sessionTitle}`,
+          `*${sessionDate}*`,
+          `*Mode: ${modeName}*`,
+          "",
+        ];
+
+        turns.forEach((t, i) => {
+          lines.push(`---\n\n## Turn ${i + 1}: ${t.prompt}\n`);
+          Object.entries(t.advisorTexts).forEach(([id, txt]) => {
+            lines.push(`### ${advisorName(id)}\n${txt}\n`);
+          });
+          if (t.peerReview) lines.push(`### Peer Review\n${t.peerReview}\n`);
+          if (t.verdict)    lines.push(`### Chairman's Verdict\n${t.verdict}\n`);
+        });
+
+        const slug = sessionTitle.replace(/[^a-z0-9]/gi, "-").toLowerCase().slice(0, 50);
+        const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement("a");
-        a.href = url; a.download = "council-session.md"; a.click();
+        a.href = url; a.download = `council-${slug}.md`; a.click();
         URL.revokeObjectURL(url);
-      }, [turns]);
+      }, [turns, sessions, activeSessionId, activeMode]);
 
       return (
         <div className="app-shell">
@@ -1294,7 +1638,8 @@
                   generateDiagrams={generateDiagrams} onGenerateDiagrams={setGenerateDiagrams}
                   onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); setAdvisorCount(3); setPeerReviewEnabled(false); setGenerateDiagrams(false); }}
                   onClearKey={() => { onClearKey(); setShowSettings(false); }}
-                  onClose={() => setShowSettings(false)} />
+                  onClose={() => setShowSettings(false)}
+                  userContext={userContext} onUserContext={setUserContext} />
               )}
 
               {/* ── Page header ──────────────────────────────────────── */}
@@ -1319,11 +1664,20 @@
                     </p>
                   </div>
                 </div>
-                <button onClick={() => setShowSettings(true)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer", flexShrink: 0 }}>
-                  <i className="ti ti-settings" style={{ fontSize: 14 }} />
-                  {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)} · {advisorCount}adv
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexShrink: 0 }}>
+                  {turns.length > 0 && (
+                    <button onClick={exportMarkdown} title="Export session as Markdown"
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t3)", cursor: "pointer" }}>
+                      <i className="ti ti-download" style={{ fontSize: 13 }} />
+                      Export
+                    </button>
+                  )}
+                  <button onClick={() => setShowSettings(true)}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer" }}>
+                    <i className="ti ti-settings" style={{ fontSize: 14 }} />
+                    {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)} · {advisorCount}adv
+                  </button>
+                </div>
               </div>
 
               <div style={{ padding: "0 32px" }}>
@@ -1331,11 +1685,51 @@
                 {/* ── Initial prompt input (first turn only) ─────────── */}
                 {phase === "idle" && turns.length === 0 && (
                   <div className="fade-up">
+                    <ModeSelector activeMode={activeMode} onSelect={setActiveMode} />
+                    <TemplateRow mode={activeMode} onSelect={t => setInitialQuestion(t)} />
+
+                    {/* ── Context panel ─────────────────────────────── */}
+                    <div style={{ marginBottom: 16 }}>
+                      <button
+                        onClick={() => setShowContextPanel(p => !p)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8, width: "100%",
+                          background: showContextPanel ? "var(--bg3)" : "none",
+                          border: `1px solid ${contextInput ? "var(--amber-ring)" : "var(--bd)"}`,
+                          borderRadius: 6, padding: "7px 12px", fontSize: 12,
+                          color: contextInput ? "var(--amber)" : "var(--t3)", cursor: "pointer",
+                        }}
+                      >
+                        <i className="ti ti-paperclip" style={{ fontSize: 13 }} />
+                        {contextInput ? "Context added" : "Add background context"}
+                        {contextInput && (
+                          <span style={{ fontSize: 10, fontFamily: "var(--mono)", marginLeft: 4, opacity: 0.7 }}>
+                            (~{Math.round(contextInput.length / 4)} tokens)
+                          </span>
+                        )}
+                        <i className={`ti ti-chevron-${showContextPanel ? "up" : "down"}`} style={{ fontSize: 12, marginLeft: "auto" }} />
+                      </button>
+                      {showContextPanel && (
+                        <textarea
+                          value={contextInput}
+                          onChange={e => setContextInput(e.target.value)}
+                          placeholder="Paste background material here — a document, article, code snippet, or personal context. Sent to all advisors but kept separate from your question."
+                          style={{
+                            width: "100%", marginTop: 6, padding: "12px 14px",
+                            background: "var(--bg3)", border: "1px solid var(--bd2)",
+                            borderRadius: 6, color: "var(--t1)", fontSize: 13,
+                            lineHeight: 1.7, resize: "vertical", minHeight: 120,
+                            fontFamily: "var(--sans)", outline: "none",
+                          }}
+                        />
+                      )}
+                    </div>
+
                     <textarea
                       value={initialQuestion}
                       onChange={e => setInitialQuestion(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleInitialSubmit(); }}
-                      placeholder="What decision should the council pressure-test? Be specific — context sharpens the output."
+                      placeholder={currentMode.inputPlaceholder}
                       style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s" }}
                     />
                     <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 28px" }}>
@@ -1355,7 +1749,7 @@
 
                     <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>The {advisorCount === 5 ? "five" : advisorCount === 4 ? "four" : advisorCount === 3 ? "three" : advisorCount === 2 ? "two" : ""} advisors</p>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      {ADVISORS.slice(0, advisorCount).map((a, i) => (
+                      {modeAdvisors.slice(0, advisorCount).map((a, i) => (
                         <div key={a.id} style={{ gridColumn: (advisorCount % 2 !== 0 && i === advisorCount - 1) ? "span 2" : undefined, padding: "12px 14px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                             <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
@@ -1392,7 +1786,7 @@
                     {phase === "advisors" && (
                       <div>
                         <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisors deliberating</p>
-                        {ADVISORS.map(a => (
+                        {modeAdvisors.map(a => (
                           <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors" />
                         ))}
                       </div>
