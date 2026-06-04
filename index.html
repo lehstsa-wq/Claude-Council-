@@ -1805,57 +1805,118 @@ Do not describe what you're doing. Just produce the writing.`,
 
     /* ── VERDICT TABS ───────────────────────────────────────────────── */
 
+    // Parse any ## headings in text into { label, content } sections
+    function parseGenericSections(text) {
+      if (!text) return [];
+      const sections = [];
+      text.split(/(?=^## )/m).forEach(part => {
+        const m = part.match(/^## (.+?)\n([\s\S]*)/);
+        if (m) sections.push({ label: m[1].trim(), content: m[2].trim() });
+        else if (!sections.length && part.trim()) sections.push({ label: "Output", content: part.trim() });
+      });
+      return sections;
+    }
+
     function VerdictTabs({ sec, diagramCode }) {
-      const allTabs = [
+      // Decision-mode structured sections
+      const structuredTabs = [
         { id: "agrees",  label: "Agrees",        icon: "ti-check",              accent: "var(--green)",  tint: "var(--green-tint)",  ring: "var(--green-ring)",  text: sec.agrees  },
         { id: "clashes", label: "Clashes",        icon: "ti-arrows-exchange",    accent: "var(--red)",    tint: "var(--red-tint)",    ring: "var(--red-ring)",    text: sec.clashes },
         { id: "blind",   label: "Blind Spots",    icon: "ti-eye-off",            accent: "var(--purple)", tint: "var(--purple-tint)", ring: "var(--purple-ring)", text: sec.blind   },
         { id: "rec",     label: "Recommendation", icon: "ti-star",               accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  text: sec.rec     },
         { id: "first",   label: "One Thing",      icon: "ti-arrow-narrow-right", accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  text: sec.first   },
       ].filter(t => t.text);
-      if (diagramCode) allTabs.push({ id: "diagram", label: "Diagram", icon: "ti-chart-dots-3", accent: "var(--blue)", tint: "var(--blue-tint)", ring: "var(--blue-ring)", text: null });
 
-      const [activeTab, setActiveTab] = useState(() => allTabs.find(t => t.id === "rec")?.id || allTabs[0]?.id || "rec");
-      const tab = allTabs.find(t => t.id === activeTab) || allTabs[0];
+      // If structured sections found — decision mode, use colored tabs
+      if (structuredTabs.length) {
+        const allTabs = [...structuredTabs];
+        if (diagramCode) allTabs.push({ id: "diagram", label: "Diagram", icon: "ti-chart-dots-3", accent: "var(--blue)", tint: "var(--blue-tint)", ring: "var(--blue-ring)", text: null });
+        return <StructuredVerdictTabs tabs={allTabs} diagramCode={diagramCode} />;
+      }
+
+      // Otherwise — generic mode: parse ## headings from raw text
+      const rawText = sec.raw || "";
+      const sections = parseGenericSections(rawText);
+
+      if (!sections.length) {
+        return rawText ? (
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+              <CopyBtn text={rawText} />
+            </div>
+            <div style={{ padding: "18px 20px", background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+              <Md text={rawText} />
+            </div>
+            {diagramCode && <MermaidDiagram code={diagramCode} />}
+          </div>
+        ) : null;
+      }
+
+      return <GenericVerdictTabs sections={sections} diagramCode={diagramCode} />;
+    }
+
+    function StructuredVerdictTabs({ tabs, diagramCode }) {
+      const [activeTab, setActiveTab] = useState(() => tabs.find(t => t.id === "rec")?.id || tabs[0]?.id);
+      const tab = tabs.find(t => t.id === activeTab) || tabs[0];
       if (!tab) return null;
-
       return (
         <div style={{ marginBottom: 28 }}>
           <div className="verdict-tab-bar">
-            {allTabs.map(t => (
+            {tabs.map(t => (
               <button key={t.id} className="verdict-tab" onClick={() => setActiveTab(t.id)}
                 style={{ color: activeTab === t.id ? t.accent : "var(--t3)", borderBottomColor: activeTab === t.id ? t.accent : "transparent" }}>
-                <i className={`ti ${t.icon}`} style={{ fontSize: 11 }} />
-                {t.label}
+                <i className={`ti ${t.icon}`} style={{ fontSize: 11 }} />{t.label}
               </button>
             ))}
           </div>
-
           <div className="fade-up" key={activeTab}>
             {activeTab === "diagram" ? (
               <MermaidDiagram code={diagramCode} />
             ) : activeTab === "first" ? (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                  <CopyBtn text={tab.text} />
-                </div>
-                <div className="first-action-item">
-                  <Md text={tab.text} />
-                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><CopyBtn text={tab.text} /></div>
+                <div className="first-action-item"><Md text={tab.text} /></div>
               </div>
             ) : (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                  <CopyBtn text={tab.text} />
-                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><CopyBtn text={tab.text} /></div>
                 <div style={{ padding: "16px 18px", background: tab.tint, border: `1px solid ${tab.ring}`, borderRadius: 8 }}>
                   <Md text={tab.text} />
                 </div>
               </div>
             )}
-            {sec.raw && (
-              <div style={{ padding: "18px 20px", marginTop: 12, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
-                <Md text={sec.raw} />
+          </div>
+        </div>
+      );
+    }
+
+    function GenericVerdictTabs({ sections, diagramCode }) {
+      const tabs = [...sections.map((s, i) => ({ ...s, id: `s${i}` }))];
+      if (diagramCode) tabs.push({ id: "diagram", label: "Diagram", content: null });
+      const [activeIdx, setActiveIdx] = useState(0);
+      const current = tabs[activeIdx];
+      return (
+        <div style={{ marginBottom: 28 }}>
+          <div className="verdict-tab-bar">
+            {tabs.map((t, i) => (
+              <button key={t.id} className="verdict-tab" onClick={() => setActiveIdx(i)}
+                style={{ color: activeIdx === i ? "var(--amber)" : "var(--t3)", borderBottomColor: activeIdx === i ? "var(--amber)" : "transparent" }}>
+                {t.id === "diagram" && <i className="ti ti-chart-dots-3" style={{ fontSize: 11 }} />}
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="fade-up" key={activeIdx}>
+            {current?.id === "diagram" ? (
+              <MermaidDiagram code={diagramCode} />
+            ) : (
+              <div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <CopyBtn text={current?.content || ""} />
+                </div>
+                <div style={{ padding: "16px 18px", background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+                  <Md text={current?.content || ""} />
+                </div>
               </div>
             )}
           </div>
