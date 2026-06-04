@@ -2345,135 +2345,161 @@ Do not describe what you're doing. Just produce the writing.`,
               )}
 
               {/* ── Page header ──────────────────────────────────────── */}
-              <div className="council-header" style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div className="council-header" style={{ padding: "24px 32px 0", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   {!sidebarOpen && (
                     <button onClick={() => setSidebarOpen(true)} title="Show history"
-                      style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "none", border: "1px solid var(--bd)", borderRadius: 5, color: "var(--t3)", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "none", border: "1px solid var(--bd)", borderRadius: 5, color: "var(--t3)", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
                       <i className="ti ti-layout-sidebar-left-expand" style={{ fontSize: 14 }} />
                     </button>
                   )}
                   <div>
-                    <p className="tag" style={{ color: "var(--amber)", marginBottom: 10 }}>Sai's Council</p>
-                    <h1 style={{ fontFamily: "var(--display)", fontSize: 58, letterSpacing: 3, color: "var(--t1)", lineHeight: 1, marginBottom: 8 }}>THE COUNCIL</h1>
-                    <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, maxWidth: "50ch" }}>
-                      Five independent advisors. Anonymous peer review. One verdict.<br />
-                      Multi-turn conversations — each follow-up builds on the prior thread.
-                    </p>
-                    <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 8 }}>
-                      Derived from{" "}
-                      <a href="https://karpathy.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--t3)", textDecoration: "underline", textUnderlineOffset: 3 }}>Andrej Karpathy</a>'s LLM Council concept
+                    <h1 style={{ fontFamily: "var(--display)", fontSize: 36, letterSpacing: 3, color: "var(--t1)", lineHeight: 1 }}>THE COUNCIL</h1>
+                    <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 3, fontFamily: "var(--mono)", letterSpacing: "0.5px" }}>
+                      By <a href="https://karpathy.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--t3)", textDecoration: "underline", textUnderlineOffset: 2 }}>Karpathy</a> · Built by Sai
                     </p>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   {turns.length > 0 && (
-                    <button onClick={exportMarkdown} title="Export session as Markdown"
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t3)", cursor: "pointer" }}>
-                      <i className="ti ti-download" style={{ fontSize: 13 }} />
-                      Export
+                    <button onClick={exportMarkdown} title="Export session"
+                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", fontSize: 12, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7, color: "var(--t3)", cursor: "pointer", transition: "all .15s" }}>
+                      <i className="ti ti-download" style={{ fontSize: 13 }} />Export
                     </button>
                   )}
                   <button onClick={() => setShowSettings(true)}
-                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer" }}>
-                    <i className="ti ti-settings" style={{ fontSize: 14 }} />
-                    {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)} · {safeAdvisors.length}adv
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", fontSize: 12, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7, color: "var(--t2)", cursor: "pointer", transition: "all .15s" }}>
+                    <i className="ti ti-settings" style={{ fontSize: 13 }} />
+                    {modelLabel(model)} · {safeAdvisors.length}
                   </button>
                 </div>
               </div>
 
               <div className="council-content" style={{ padding: "0 32px" }}>
 
-                {/* ── Initial prompt input (first turn only) ─────────── */}
+                {/* ── Initial prompt input ─────────────────────────── */}
                 {phase === "idle" && turns.length === 0 && (
                   <div className="fade-up">
-                    <ModeSelector activeMode={activeMode} onSelect={setActiveMode} />
-                    <TemplateRow mode={activeMode} onSelect={t => setInitialQuestion(t)} />
 
-                    {/* Hero example prompts — decision mode only */}
-                    {activeMode === "decision" && !initialQuestion && (
-                      <div style={{ marginBottom: 16, textAlign: "center" }}>
-                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Or try an example</p>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                          {EXAMPLE_PROMPTS.map((p, i) => (
-                            <button key={i} onClick={() => setInitialQuestion(p)} className="example-prompt">
-                              <i className="ti ti-arrow-right" style={{ fontSize: 11, color: "var(--amber)", marginRight: 7 }} />{p}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {/* 1. Compact mode tabs */}
+                    <ModeSelector activeMode={activeMode} onSelect={m => { setActiveMode(m); setInitialQuestion(""); }} />
 
-                    {/* ── Context panel ─────────────────────────────── */}
-                    <div style={{ marginBottom: 16 }}>
-                      <button onClick={() => setShowContextPanel(p => !p)}
-                        className={`btn-context${contextInput ? " has-context" : ""}`}
-                        style={{ background: showContextPanel ? "var(--bg3)" : undefined }}>
-                        <i className="ti ti-paperclip" style={{ fontSize: 13 }} />
-                        {contextInput ? "Context added" : "Add background context"}
-                        {contextInput && <span style={{ fontSize: 10, fontFamily: "var(--mono)", marginLeft: 4, opacity: 0.7 }}>(~{Math.round(contextInput.length / 4)} tokens)</span>}
-                        <i className={`ti ti-chevron-${showContextPanel ? "up" : "down"}`} style={{ fontSize: 12, marginLeft: "auto" }} />
-                      </button>
-                      {showContextPanel && (
-                        <textarea value={contextInput} onChange={e => setContextInput(e.target.value)}
-                          placeholder="Paste background material — a document, article, code snippet, or personal context. Sent to all advisors but kept separate from your question."
-                          style={{ width: "100%", marginTop: 6, padding: "12px 14px", background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: 6, color: "var(--t1)", fontSize: 13, lineHeight: 1.7, resize: "vertical", minHeight: 120, fontFamily: "var(--sans)", outline: "none" }} />
-                      )}
-                    </div>
-
+                    {/* 2. The textarea — immediate focus */}
                     <textarea
                       value={initialQuestion}
+                      autoFocus
                       onChange={e => setInitialQuestion(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleInitialSubmit(); }}
                       placeholder={currentMode.inputPlaceholder}
                       className="council-input"
-                      style={{ borderRadius: showOptions ? "10px 10px 0 0" : 10 }}
+                      style={{ marginBottom: 10 }}
                     />
 
-                    {/* File attachments */}
-                    <FileAttachmentPanel files={attachedFiles} onAdd={addFiles} onRemove={removeFile} />
+                    {/* File chips — only shown if files are attached */}
+                    {attachedFiles.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                        {attachedFiles.map(f => (
+                          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: "var(--bg3)", border: "1px solid var(--bd)", fontSize: 11, color: "var(--t2)" }}>
+                            <i className={`ti ${fileIcon(f.mimeType)}`} style={{ fontSize: 10, color: "var(--amber)" }} />
+                            <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                            <button onClick={() => removeFile(f.id)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", padding: 0, lineHeight: 1 }}>
+                              <i className="ti ti-x" style={{ fontSize: 10 }} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <FileTokenWarning files={attachedFiles} />
 
-                    {/* Collapsible options row */}
+                    {/* 3. Submit button — full width, unmissable */}
+                    <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()} className="btn-convene" style={{ marginBottom: 8 }}>
+                      CONVENE THE COUNCIL
+                    </button>
+
+                    {/* 4. Options toggle — always visible directly under submit */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: showOptions ? 0 : 32 }}>
+                      <button onClick={() => setShowOptions(v => !v)}
+                        className={`btn-options${showOptions ? " is-open" : ""}`}>
+                        <i className="ti ti-sliders-2" style={{ fontSize: 13 }} />
+                        Options
+                        {(attachedFiles.length > 0 || contextInput || safeAdvisors.length < ADVISORS.length) && (
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--amber)", display: "inline-block", marginLeft: 2 }} />
+                        )}
+                        <i className={`ti ti-chevron-${showOptions ? "up" : "down"}`} style={{ fontSize: 11 }} />
+                      </button>
+                      <span style={{ flex: 1 }} />
+                      <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
+                    </div>
+
+                    {/* 5. Options panel — ALL secondary controls in one place */}
                     {showOptions && (
-                      <div className="options-panel fade-up">
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                      <div className="options-panel fade-up" style={{ marginBottom: 28 }}>
+
+                        {/* Examples & templates */}
+                        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--bd)" }}>
+                          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Examples</p>
+                          {activeMode === "decision" ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              {EXAMPLE_PROMPTS.map((p, i) => (
+                                <button key={i} className="example-prompt"
+                                  onClick={() => { setInitialQuestion(p); setShowOptions(false); }}>
+                                  <i className="ti ti-arrow-right" style={{ fontSize: 11, color: "var(--amber)", marginRight: 7 }} />{p}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {(TEMPLATES[activeMode] || []).map((t, i) => (
+                                <button key={i} className="example-prompt" style={{ flex: "0 0 auto", width: "auto" }}
+                                  onClick={() => { setInitialQuestion(t); setShowOptions(false); }}>
+                                  {t.length > 45 ? t.slice(0, 45) + "…" : t}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Background context */}
+                        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--bd)" }}>
+                          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>
+                            Background context
+                            {contextInput && <span style={{ color: "var(--amber)", fontFamily: "var(--mono)", marginLeft: 8 }}>· ~{Math.round(contextInput.length / 4)} tokens</span>}
+                          </p>
+                          <textarea value={contextInput} onChange={e => setContextInput(e.target.value)}
+                            placeholder="Paste background material — docs, code, articles, or personal context. Sent to all advisors, cached for efficiency."
+                            className="council-input"
+                            style={{ minHeight: 90, fontSize: 13, marginBottom: 0 }} />
+                        </div>
+
+                        {/* File attachments */}
+                        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--bd)" }}>
+                          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Attach files</p>
+                          <FileAttachmentPanel files={attachedFiles} onAdd={addFiles} onRemove={removeFile} />
+                        </div>
+
+                        {/* Advisor picker */}
+                        {activeMode === "decision" && (
+                          <AdvisorPicker selected={selectedAdvisors} onChange={setSelectedAdvisors} />
+                        )}
+
+                        {/* Pipeline toggles */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 12, marginTop: activeMode === "decision" ? 12 : 0, borderTop: activeMode === "decision" ? "1px solid var(--bd)" : "none" }}>
                           <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
                           <button onClick={() => setFastAdvisors(v => !v)}
                             className={`diagram-toggle ${fastAdvisors ? "is-on" : "is-off"}`}
                             style={{ borderColor: fastAdvisors ? "var(--green-ring)" : undefined, color: fastAdvisors ? "var(--green)" : undefined, background: fastAdvisors ? "var(--green-tint)" : undefined }}>
                             <i className="ti ti-bolt" style={{ fontSize: 13 }} />
-                            {fastAdvisors ? "Fast advisors on" : "Fast advisors"}
+                            {fastAdvisors ? "Fast advisors" : "Fast advisors"}
                           </button>
                           <button onClick={() => setPeerReviewEnabled(v => !v)}
                             className={`diagram-toggle ${peerReviewEnabled ? "is-on" : "is-off"}`}
                             style={{ borderColor: peerReviewEnabled ? "var(--purple-ring)" : undefined, color: peerReviewEnabled ? "var(--purple)" : undefined, background: peerReviewEnabled ? "var(--purple-tint)" : undefined }}>
                             <i className="ti ti-analyze" style={{ fontSize: 13 }} />
-                            {peerReviewEnabled ? "Peer review on" : "Peer review"}
+                            Peer review
                           </button>
                         </div>
-                        <AdvisorPicker selected={selectedAdvisors} onChange={setSelectedAdvisors} />
                       </div>
                     )}
-
-                    <div style={{ margin: "12px 0 28px" }}>
-                      <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()} className="btn-convene">
-                        CONVENE THE COUNCIL
-                      </button>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-                        <button onClick={() => setShowOptions(v => !v)}
-                          className={`btn-options${showOptions ? " is-open" : ""}`}>
-                          <i className="ti ti-sliders-2" style={{ fontSize: 13 }} />
-                          Options
-                          {safeAdvisors.length < ADVISORS.length && (
-                            <span style={{ color: "var(--amber)", marginLeft: 1 }}>· {safeAdvisors.length} advisors</span>
-                          )}
-                          <i className={`ti ti-chevron-${showOptions ? "up" : "down"}`} style={{ fontSize: 11 }} />
-                        </button>
-                        <span style={{ flex: 1 }} />
-                        <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
-                      </div>
-                    </div>
 
                     {error && (
                       <div style={{ padding: "11px 15px", marginBottom: 20, background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
@@ -2481,24 +2507,22 @@ Do not describe what you're doing. Just produce the writing.`,
                       </div>
                     )}
 
-                    {(() => {
+                    {/* 6. Advisor summary — compact pills, below the fold is fine */}
+                    {!showOptions && (() => {
                       const displayAdvisors = activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount);
-                      return (<>
-                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>
-                          The {["","","two","three","four","five"][displayAdvisors.length] || displayAdvisors.length} advisors
-                        </p>
-                        <div className="advisor-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                          {displayAdvisors.map((a, i) => (
-                        <div key={a.id} style={{ gridColumn: (displayAdvisors.length % 2 !== 0 && i === displayAdvisors.length - 1) ? "span 2" : undefined, padding: "12px 14px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                            <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
-                            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
+                      return (
+                        <div>
+                          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Your council</p>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {displayAdvisors.map(a => (
+                              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 20, background: a.tint, border: `1px solid ${a.ring}` }}>
+                                <i className={`ti ${a.icon}`} style={{ fontSize: 11, color: a.accent }} />
+                                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
+                              </div>
+                            ))}
                           </div>
-                          <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{a.tagline}</p>
                         </div>
-                      ))}
-                        </div>
-                      </>);
+                      );
                     })()}
                   </div>
                 )}
