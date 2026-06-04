@@ -1526,7 +1526,7 @@ Do not describe what you're doing. Just produce the writing.`,
 
     /* ── SETTINGS PANEL ─────────────────────────────────────────────── */
 
-    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, generateDiagrams, onGenerateDiagrams, onBudgetMode, onClearKey, onClose, userContext, onUserContext }) {
+    function SettingsPanel({ apiKey, model, onModel, fastAdvisors, onFast, advisorCount, onAdvisorCount, peerReviewEnabled, onPeerReview, generateDiagrams, onGenerateDiagrams, onBudgetMode, onClearKey, onClose, userContext, onUserContext, contextInput, onContextInput, selectedAdvisors, onSelectedAdvisors, activeMode }) {
       const estimatedCost = estimateCostPerTurn(model, fastAdvisors, advisorCount, peerReviewEnabled, generateDiagrams);
       const isBudgetMode  = model === FAST_MODEL && fastAdvisors && advisorCount <= 3 && !peerReviewEnabled;
       const isUnderPenny  = estimatedCost < 0.01;
@@ -1632,22 +1632,23 @@ Do not describe what you're doing. Just produce the writing.`,
                   />
                 </div>
 
-                {/* Advisor count */}
-                <div style={{ marginTop: 16 }}>
-                  <p style={{ fontSize: 12, fontWeight: 500, color: "var(--t2)", margin: "0 0 8px" }}>
-                    Advisors: <span style={{ color: "var(--t1)", fontWeight: 600 }}>{advisorCount}</span>
-                    <span style={{ color: "var(--t2)", fontWeight: 400, marginLeft: 8 }}>
-                      {advisorCount === 5 ? "Full depth" : advisorCount === 4 ? "High depth" : advisorCount === 3 ? "Balanced" : "Lean"}
-                    </span>
-                  </p>
-                  <div style={{ display: "flex", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 7, overflow: "hidden" }}>
-                    {[2, 3, 4, 5].map(n => (
-                      <button key={n} onClick={() => onAdvisorCount(n)} style={{ flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 500, background: advisorCount === n ? "var(--amber-tint)" : "transparent", color: advisorCount === n ? "var(--amber)" : "var(--t2)", border: "none", borderRight: n < 5 ? "1px solid var(--bd)" : "none", cursor: "pointer", transition: "background .15s" }}>
-                        {n}
-                      </button>
-                    ))}
+                {/* Advisor picker — decision mode shows full picker, others show count */}
+                {activeMode === "decision" ? (
+                  <AdvisorPicker selected={selectedAdvisors} onChange={onSelectedAdvisors} />
+                ) : (
+                  <div style={{ marginTop: 16 }}>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: "var(--t2)", margin: "0 0 8px" }}>
+                      Advisors: <span style={{ color: "var(--t1)", fontWeight: 600 }}>{advisorCount}</span>
+                    </p>
+                    <div style={{ display: "flex", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 7, overflow: "hidden" }}>
+                      {[2, 3, 4, 5].map(n => (
+                        <button key={n} onClick={() => onAdvisorCount(n)} style={{ flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 500, background: advisorCount === n ? "var(--amber-tint)" : "transparent", color: advisorCount === n ? "var(--amber)" : "var(--t2)", border: "none", borderRight: n < 5 ? "1px solid var(--bd)" : "none", cursor: "pointer", transition: "background .15s" }}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* ── Output ────────────────────────────────────── */}
@@ -1660,9 +1661,24 @@ Do not describe what you're doing. Just produce the writing.`,
                 />
               </div>
 
+              {/* ── Session context ───────────────────────────── */}
+              <div style={{ borderTop: "1px solid var(--bd)", paddingTop: 20, marginBottom: 24 }}>
+                <SectionLabel>
+                  Session context
+                  {contextInput && <span style={{ color: "var(--amber)", fontFamily: "var(--mono)", fontSize: 10, fontWeight: 400, marginLeft: 8 }}>· ~{Math.round(contextInput.length / 4)} tokens</span>}
+                </SectionLabel>
+                <textarea
+                  value={contextInput}
+                  onChange={e => onContextInput(e.target.value)}
+                  placeholder="Background material for this session — a document, article, code snippet, or topic context. Sent with every message this session."
+                  style={{ width: "100%", padding: "10px 12px", marginBottom: 6, background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t1)", fontSize: 12, lineHeight: 1.65, resize: "vertical", minHeight: 80, fontFamily: "var(--sans)", outline: "none" }}
+                />
+                <p style={{ fontSize: 11, color: "var(--t3)", margin: 0 }}>Cleared when you start a new session.</p>
+              </div>
+
               {/* ── My Context ────────────────────────────────── */}
               <div style={{ borderTop: "1px solid var(--bd)", paddingTop: 20, marginBottom: 24 }}>
-                <SectionLabel>My context</SectionLabel>
+                <SectionLabel>My context (persistent)</SectionLabel>
                 <textarea
                   value={userContext}
                   onChange={e => {
@@ -2015,7 +2031,6 @@ Do not describe what you're doing. Just produce the writing.`,
       const [showSettings,       setShowSettings]       = useState(false);
       const [activeMode,         setActiveMode]         = useState("decision");
       const [contextInput,       setContextInput]       = useState("");
-      const [showContextPanel,   setShowContextPanel]   = useState(false);
       const [userContext,        setUserContext]        = useState(() => localStorage.getItem("council-user-context") || "");
 
       const currentMode        = MODES[activeMode] || MODES.decision;
@@ -2051,7 +2066,6 @@ Do not describe what you're doing. Just produce the writing.`,
       const [openPanels, setOpenPanels] = useState({});
 
       // ── UI state ──────────────────────────────────────────────────────
-      const [showOptions,       setShowOptions]       = useState(false);
       const [showFollowUpInput, setShowFollowUpInput] = useState(false);
       const [spotlitAdvisor,    setSpotlitAdvisor]    = useState(null);
 
@@ -2341,7 +2355,10 @@ Do not describe what you're doing. Just produce the writing.`,
                   onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); setAdvisorCount(3); setSelectedAdvisors(ADVISORS.slice(0, 3).map(a => a.id)); setPeerReviewEnabled(false); setGenerateDiagrams(false); }}
                   onClearKey={() => { onClearKey(); setShowSettings(false); }}
                   onClose={() => setShowSettings(false)}
-                  userContext={userContext} onUserContext={setUserContext} />
+                  userContext={userContext} onUserContext={setUserContext}
+                  contextInput={contextInput} onContextInput={setContextInput}
+                  selectedAdvisors={selectedAdvisors} onSelectedAdvisors={setSelectedAdvisors}
+                  activeMode={activeMode} />
               )}
 
               {/* ── Page header ──────────────────────────────────────── */}
@@ -2370,7 +2387,7 @@ Do not describe what you're doing. Just produce the writing.`,
                   <button onClick={() => setShowSettings(true)}
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", fontSize: 12, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7, color: "var(--t2)", cursor: "pointer", transition: "all .15s" }}>
                     <i className="ti ti-settings" style={{ fontSize: 13 }} />
-                    {modelLabel(model)} · {safeAdvisors.length}
+                    Settings
                   </button>
                 </div>
               </div>
@@ -2381,10 +2398,19 @@ Do not describe what you're doing. Just produce the writing.`,
                 {phase === "idle" && turns.length === 0 && (
                   <div className="fade-up">
 
-                    {/* 1. Compact mode tabs */}
+                    {/* Mode tabs */}
                     <ModeSelector activeMode={activeMode} onSelect={m => { setActiveMode(m); setInitialQuestion(""); }} />
 
-                    {/* 2. The textarea — immediate focus */}
+                    {/* 3 examples — always visible, mode-specific */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>
+                      {(activeMode === "decision" ? EXAMPLE_PROMPTS : (TEMPLATES[activeMode] || []).slice(0, 3)).map((p, i) => (
+                        <button key={i} className="example-prompt" onClick={() => setInitialQuestion(p)}>
+                          <i className="ti ti-arrow-right" style={{ fontSize: 11, color: "var(--amber)", marginRight: 7 }} />{p}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Textarea */}
                     <textarea
                       value={initialQuestion}
                       autoFocus
@@ -2395,111 +2421,17 @@ Do not describe what you're doing. Just produce the writing.`,
                       style={{ marginBottom: 10 }}
                     />
 
-                    {/* File chips — only shown if files are attached */}
-                    {attachedFiles.length > 0 && (
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                        {attachedFiles.map(f => (
-                          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: "var(--bg3)", border: "1px solid var(--bd)", fontSize: 11, color: "var(--t2)" }}>
-                            <i className={`ti ${fileIcon(f.mimeType)}`} style={{ fontSize: 10, color: "var(--amber)" }} />
-                            <span style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                            <button onClick={() => removeFile(f.id)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", padding: 0, lineHeight: 1 }}>
-                              <i className="ti ti-x" style={{ fontSize: 10 }} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {/* File attachments — always accessible */}
+                    <FileAttachmentPanel files={attachedFiles} onAdd={addFiles} onRemove={removeFile} />
                     <FileTokenWarning files={attachedFiles} />
 
-                    {/* 3. Submit button — full width, unmissable */}
-                    <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()} className="btn-convene" style={{ marginBottom: 8 }}>
+                    {/* Submit */}
+                    <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()} className="btn-convene" style={{ marginBottom: 6 }}>
                       CONVENE THE COUNCIL
                     </button>
-
-                    {/* 4. Options toggle — always visible directly under submit */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: showOptions ? 0 : 32 }}>
-                      <button onClick={() => setShowOptions(v => !v)}
-                        className={`btn-options${showOptions ? " is-open" : ""}`}>
-                        <i className="ti ti-sliders-2" style={{ fontSize: 13 }} />
-                        Options
-                        {(attachedFiles.length > 0 || contextInput || safeAdvisors.length < ADVISORS.length) && (
-                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--amber)", display: "inline-block", marginLeft: 2 }} />
-                        )}
-                        <i className={`ti ti-chevron-${showOptions ? "up" : "down"}`} style={{ fontSize: 11 }} />
-                      </button>
-                      <span style={{ flex: 1 }} />
+                    <div style={{ textAlign: "right", marginBottom: 28 }}>
                       <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
                     </div>
-
-                    {/* 5. Options panel — ALL secondary controls in one place */}
-                    {showOptions && (
-                      <div className="options-panel fade-up" style={{ marginBottom: 28 }}>
-
-                        {/* Examples & templates */}
-                        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--bd)" }}>
-                          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Examples</p>
-                          {activeMode === "decision" ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                              {EXAMPLE_PROMPTS.map((p, i) => (
-                                <button key={i} className="example-prompt"
-                                  onClick={() => { setInitialQuestion(p); setShowOptions(false); }}>
-                                  <i className="ti ti-arrow-right" style={{ fontSize: 11, color: "var(--amber)", marginRight: 7 }} />{p}
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              {(TEMPLATES[activeMode] || []).map((t, i) => (
-                                <button key={i} className="example-prompt" style={{ flex: "0 0 auto", width: "auto" }}
-                                  onClick={() => { setInitialQuestion(t); setShowOptions(false); }}>
-                                  {t.length > 45 ? t.slice(0, 45) + "…" : t}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Background context */}
-                        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--bd)" }}>
-                          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>
-                            Background context
-                            {contextInput && <span style={{ color: "var(--amber)", fontFamily: "var(--mono)", marginLeft: 8 }}>· ~{Math.round(contextInput.length / 4)} tokens</span>}
-                          </p>
-                          <textarea value={contextInput} onChange={e => setContextInput(e.target.value)}
-                            placeholder="Paste background material — docs, code, articles, or personal context. Sent to all advisors, cached for efficiency."
-                            className="council-input"
-                            style={{ minHeight: 90, fontSize: 13, marginBottom: 0 }} />
-                        </div>
-
-                        {/* File attachments */}
-                        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--bd)" }}>
-                          <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Attach files</p>
-                          <FileAttachmentPanel files={attachedFiles} onAdd={addFiles} onRemove={removeFile} />
-                        </div>
-
-                        {/* Advisor picker */}
-                        {activeMode === "decision" && (
-                          <AdvisorPicker selected={selectedAdvisors} onChange={setSelectedAdvisors} />
-                        )}
-
-                        {/* Pipeline toggles */}
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 12, marginTop: activeMode === "decision" ? 12 : 0, borderTop: activeMode === "decision" ? "1px solid var(--bd)" : "none" }}>
-                          <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
-                          <button onClick={() => setFastAdvisors(v => !v)}
-                            className={`diagram-toggle ${fastAdvisors ? "is-on" : "is-off"}`}
-                            style={{ borderColor: fastAdvisors ? "var(--green-ring)" : undefined, color: fastAdvisors ? "var(--green)" : undefined, background: fastAdvisors ? "var(--green-tint)" : undefined }}>
-                            <i className="ti ti-bolt" style={{ fontSize: 13 }} />
-                            {fastAdvisors ? "Fast advisors" : "Fast advisors"}
-                          </button>
-                          <button onClick={() => setPeerReviewEnabled(v => !v)}
-                            className={`diagram-toggle ${peerReviewEnabled ? "is-on" : "is-off"}`}
-                            style={{ borderColor: peerReviewEnabled ? "var(--purple-ring)" : undefined, color: peerReviewEnabled ? "var(--purple)" : undefined, background: peerReviewEnabled ? "var(--purple-tint)" : undefined }}>
-                            <i className="ti ti-analyze" style={{ fontSize: 13 }} />
-                            Peer review
-                          </button>
-                        </div>
-                      </div>
-                    )}
 
                     {error && (
                       <div style={{ padding: "11px 15px", marginBottom: 20, background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
@@ -2507,8 +2439,8 @@ Do not describe what you're doing. Just produce the writing.`,
                       </div>
                     )}
 
-                    {/* 6. Advisor summary — compact pills, below the fold is fine */}
-                    {!showOptions && (() => {
+                    {/* Advisor pills */}
+                    {(() => {
                       const displayAdvisors = activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount);
                       return (
                         <div>
