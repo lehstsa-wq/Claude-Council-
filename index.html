@@ -188,6 +188,126 @@
     }
     .diagram-card svg { max-width: 100%; height: auto; display: block; }
 
+    /* ── Immaculate polish layer ─────────────────────────────────────── */
+
+    /* Primary submit button */
+    .btn-convene {
+      width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px;
+      padding: 16px 28px;
+      font-family: var(--display); font-size: 21px; letter-spacing: 3px;
+      background: var(--amber); color: var(--bg);
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, opacity .15s;
+    }
+    .btn-convene:not(:disabled):hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px oklch(72% 0.16 65 / 0.45);
+    }
+    .btn-convene:not(:disabled):active { transform: translateY(0); box-shadow: none; }
+    .btn-convene:disabled { opacity: 0.22; cursor: not-allowed; }
+
+    /* Options toggle */
+    .btn-options {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 16px; border-radius: 8px;
+      border: 1.5px solid var(--bd); background: var(--bg3);
+      color: var(--t2); font-size: 12px; font-weight: 500;
+      cursor: pointer; transition: all .15s ease; font-family: var(--sans);
+    }
+    .btn-options:hover, .btn-options.is-open {
+      background: var(--bg4); color: var(--t1); border-color: var(--bd2);
+    }
+
+    /* Textarea */
+    .council-input {
+      width: 100%; min-height: 120px;
+      padding: 18px 20px; font-size: 15px; line-height: 1.75;
+      background: var(--bg2); border: 1.5px solid var(--bd);
+      border-radius: 10px; color: var(--t1);
+      outline: none; resize: vertical;
+      font-family: var(--sans);
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .council-input:focus {
+      border-color: oklch(72% 0.16 65 / 0.55);
+      box-shadow: 0 0 0 4px oklch(72% 0.16 65 / 0.07);
+    }
+
+    /* Mode selector cards */
+    .mode-card {
+      flex-shrink: 0; min-width: 140px; padding: 14px 16px;
+      background: var(--bg2); border: 1.5px solid var(--bd);
+      border-radius: 10px; cursor: pointer; text-align: left;
+      transition: transform .2s ease, border-color .2s, box-shadow .2s;
+    }
+    .mode-card:hover { transform: translateY(-2px); border-color: var(--bd2); box-shadow: 0 4px 18px oklch(0% 0 0 / 0.25); }
+    .mode-card.is-active { border-color: var(--amber-ring); background: var(--amber-tint); }
+    .mode-card.is-active:hover { box-shadow: 0 4px 18px oklch(72% 0.16 65 / 0.2); }
+
+    /* Attach file buttons */
+    .attach-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 8px;
+      background: var(--bg3); border: 1.5px solid var(--bd);
+      color: var(--t3); font-size: 12px; cursor: pointer;
+      font-family: var(--sans); transition: all .15s ease;
+    }
+    .attach-btn:hover { color: var(--t1); background: var(--bg4); border-color: var(--bd2); }
+    .attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Post-completion CTA buttons */
+    .btn-cta-primary {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 15px 20px; font-family: var(--display); font-size: 18px; letter-spacing: 2px;
+      background: var(--amber); color: var(--bg);
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease;
+    }
+    .btn-cta-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px oklch(72% 0.16 65 / 0.4); }
+
+    .btn-cta-secondary {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 15px 20px; font-family: var(--display); font-size: 18px; letter-spacing: 2px;
+      background: transparent; color: var(--t2);
+      border: 1.5px solid var(--bd); border-radius: 10px; cursor: pointer;
+      transition: all .15s ease;
+    }
+    .btn-cta-secondary:hover { background: var(--bg3); color: var(--t1); border-color: var(--bd2); }
+
+    /* Context panel toggle */
+    .btn-context {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 9px 14px; border-radius: 8px; font-size: 12px;
+      border: 1.5px solid var(--bd); background: none;
+      color: var(--t3); cursor: pointer; transition: all .15s ease;
+      font-family: var(--sans);
+    }
+    .btn-context:hover { background: var(--bg3); color: var(--t2); border-color: var(--bd2); }
+    .btn-context.has-context { border-color: var(--amber-ring); color: var(--amber); }
+
+    /* Example prompt chips */
+    .example-prompt {
+      width: 100%; padding: 11px 16px; font-size: 13px; line-height: 1.5;
+      background: var(--bg2); border: 1.5px solid var(--bd);
+      border-radius: 8px; color: var(--t2); cursor: pointer; text-align: left;
+      transition: all .15s ease; font-family: var(--sans);
+    }
+    .example-prompt:hover { border-color: var(--amber-ring); color: var(--t1); background: var(--amber-tint); }
+
+    /* Advisor picker pills */
+    .advisor-pill {
+      display: flex; align-items: center; gap: 7px;
+      padding: 7px 13px; border-radius: 20px;
+      cursor: pointer; transition: all .15s ease;
+      font-family: var(--sans);
+    }
+    .advisor-pill:hover:not(:disabled) { opacity: 0.9; transform: scale(1.03); }
+    .advisor-pill:disabled { cursor: not-allowed; }
+
+    /* Session cards hover */
+    .session-card:hover  { background: var(--bg3); border-color: var(--bd); }
+    .session-card.is-active { background: var(--amber-tint); border-color: var(--amber-ring); }
+
     /* ── Responsive breakpoints ────────────────────────────────────── */
     @media (max-width: 768px) {
       :root { --sidebar-w: 100%; }
@@ -1040,7 +1160,7 @@ Do not describe what you're doing. Just produce the writing.`,
 
       return (
         <>
-          <button onClick={openPicker} disabled={loading} style={attachBtnStyle}>
+          <button onClick={openPicker} disabled={loading} className="attach-btn">
             {loading
               ? <i className="ti ti-loader-2 spin" style={{ fontSize: 13 }} />
               : <i className="ti ti-brand-google-drive" style={{ fontSize: 13, color: "var(--green)" }} />
@@ -1145,13 +1265,13 @@ Do not describe what you're doing. Just produce the writing.`,
 
           {/* Buttons row */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: files.length ? 10 : 0 }}>
-            <button onClick={() => fileInputRef.current?.click()} style={attachBtnStyle}>
+            <button onClick={() => fileInputRef.current?.click()} className="attach-btn">
               <i className="ti ti-file-text" style={{ fontSize: 13 }} />Files
             </button>
-            <button onClick={() => folderInputRef.current?.click()} style={attachBtnStyle}>
+            <button onClick={() => folderInputRef.current?.click()} className="attach-btn">
               <i className="ti ti-folder" style={{ fontSize: 13 }} />Folder
             </button>
-            <button onClick={() => imageInputRef.current?.click()} style={attachBtnStyle}>
+            <button onClick={() => imageInputRef.current?.click()} className="attach-btn">
               <i className="ti ti-photo" style={{ fontSize: 13 }} />Images
             </button>
             <GoogleDriveButton onAdd={onAdd} />
@@ -1226,15 +1346,11 @@ Do not describe what you're doing. Just produce the writing.`,
               return (
                 <button key={advisor.id} onClick={() => toggle(advisor.id)} disabled={isDisabled}
                   title={isDisabled ? "Minimum 2 advisors required" : advisor.tagline}
-                  style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 20,
-                    border: `1px solid ${isOn ? advisor.accent.replace(")", " / 0.4)").replace("var(", "").replace(")", "") : "var(--bd)"}`,
-                    borderColor: isOn ? undefined : "var(--bd)",
-                    outline: isOn ? `1px solid ${advisor.accent}` : "none",
-                    outlineOffset: -1,
+                  className="advisor-pill"
+                  style={{
+                    border: `1.5px solid ${isOn ? advisor.ring : "var(--bd)"}`,
                     background: isOn ? advisor.tint : "var(--bg3)",
-                    cursor: isDisabled ? "not-allowed" : "pointer",
-                    opacity: isDisabled ? 0.4 : 1,
-                    transition: "all .15s",
+                    opacity: isDisabled ? 0.35 : 1,
                   }}>
                   <i className={`ti ${advisor.icon}`} style={{ fontSize: 12, color: isOn ? advisor.accent : "var(--t3)" }} />
                   <span style={{ fontSize: 11, fontWeight: 500, color: isOn ? "var(--t1)" : "var(--t3)" }}>
@@ -1367,23 +1483,15 @@ Do not describe what you're doing. Just produce the writing.`,
 
     function ModeSelector({ activeMode, onSelect }) {
       return (
-        <div style={{ marginBottom: 24 }}>
-          <p className="tag" style={{ color: "var(--t3)", marginBottom: 12 }}>Council mode</p>
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+        <div style={{ marginBottom: 20 }}>
+          <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Council mode</p>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
             {Object.values(MODES).map(mode => (
-              <button
-                key={mode.id}
-                onClick={() => onSelect(mode.id)}
-                style={{
-                  flexShrink: 0, padding: "10px 14px", borderRadius: 8,
-                  border: `1px solid ${activeMode === mode.id ? "var(--amber-ring)" : "var(--bd)"}`,
-                  background: activeMode === mode.id ? "var(--amber-tint)" : "var(--bg2)",
-                  cursor: "pointer", textAlign: "left", transition: "all .15s", minWidth: 130,
-                }}
-              >
-                <i className={`ti ${mode.icon}`} style={{ fontSize: 16, color: activeMode === mode.id ? "var(--amber)" : "var(--t3)", display: "block", marginBottom: 6 }} />
-                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)", margin: "0 0 2px" }}>{mode.label}</p>
-                <p style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--mono)", letterSpacing: "0.5px", margin: 0 }}>{mode.tagline}</p>
+              <button key={mode.id} onClick={() => onSelect(mode.id)}
+                className={`mode-card${activeMode === mode.id ? " is-active" : ""}`}>
+                <i className={`ti ${mode.icon}`} style={{ fontSize: 15, color: activeMode === mode.id ? "var(--amber)" : "var(--t3)", display: "block", marginBottom: 7 }} />
+                <p style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)", margin: "0 0 2px" }}>{mode.label}</p>
+                <p style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--mono)", letterSpacing: "0.3px", margin: 0 }}>{mode.tagline}</p>
               </button>
             ))}
           </div>
@@ -2288,10 +2396,7 @@ Do not describe what you're doing. Just produce the writing.`,
                         <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Or try an example</p>
                         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                           {EXAMPLE_PROMPTS.map((p, i) => (
-                            <button key={i} onClick={() => setInitialQuestion(p)}
-                              style={{ padding: "9px 14px", fontSize: 12, lineHeight: 1.5, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7, color: "var(--t2)", cursor: "pointer", textAlign: "left", transition: "border-color .15s, color .15s" }}
-                              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--amber-ring)"; e.currentTarget.style.color = "var(--t1)"; }}
-                              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--bd)"; e.currentTarget.style.color = "var(--t2)"; }}>
+                            <button key={i} onClick={() => setInitialQuestion(p)} className="example-prompt">
                               <i className="ti ti-arrow-right" style={{ fontSize: 11, color: "var(--amber)", marginRight: 7 }} />{p}
                             </button>
                           ))}
@@ -2302,7 +2407,8 @@ Do not describe what you're doing. Just produce the writing.`,
                     {/* ── Context panel ─────────────────────────────── */}
                     <div style={{ marginBottom: 16 }}>
                       <button onClick={() => setShowContextPanel(p => !p)}
-                        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: showContextPanel ? "var(--bg3)" : "none", border: `1px solid ${contextInput ? "var(--amber-ring)" : "var(--bd)"}`, borderRadius: 6, padding: "7px 12px", fontSize: 12, color: contextInput ? "var(--amber)" : "var(--t3)", cursor: "pointer" }}>
+                        className={`btn-context${contextInput ? " has-context" : ""}`}
+                        style={{ background: showContextPanel ? "var(--bg3)" : undefined }}>
                         <i className="ti ti-paperclip" style={{ fontSize: 13 }} />
                         {contextInput ? "Context added" : "Add background context"}
                         {contextInput && <span style={{ fontSize: 10, fontFamily: "var(--mono)", marginLeft: 4, opacity: 0.7 }}>(~{Math.round(contextInput.length / 4)} tokens)</span>}
@@ -2320,7 +2426,8 @@ Do not describe what you're doing. Just produce the writing.`,
                       onChange={e => setInitialQuestion(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleInitialSubmit(); }}
                       placeholder={currentMode.inputPlaceholder}
-                      style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: showOptions ? "8px 8px 0 0" : 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s, border-radius 0.15s" }}
+                      className="council-input"
+                      style={{ borderRadius: showOptions ? "10px 10px 0 0" : 10 }}
                     />
 
                     {/* File attachments */}
@@ -2349,18 +2456,23 @@ Do not describe what you're doing. Just produce the writing.`,
                       </div>
                     )}
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 28px" }}>
-                      <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()}
-                        style={{ flex: 1, padding: "13px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !initialQuestion.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
+                    <div style={{ margin: "12px 0 28px" }}>
+                      <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()} className="btn-convene">
                         CONVENE THE COUNCIL
                       </button>
-                      <button onClick={() => setShowOptions(v => !v)} title="Toggle options"
-                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 12px", fontSize: 12, background: showOptions ? "var(--bg3)" : "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: showOptions ? "var(--t1)" : "var(--t3)", cursor: "pointer", transition: "all .15s" }}>
-                        <i className="ti ti-adjustments-horizontal" style={{ fontSize: 13 }} />
-                        Options
-                        <i className={`ti ti-chevron-${showOptions ? "up" : "down"}`} style={{ fontSize: 11 }} />
-                      </button>
-                      <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                        <button onClick={() => setShowOptions(v => !v)}
+                          className={`btn-options${showOptions ? " is-open" : ""}`}>
+                          <i className="ti ti-sliders-2" style={{ fontSize: 13 }} />
+                          Options
+                          {safeAdvisors.length < ADVISORS.length && (
+                            <span style={{ color: "var(--amber)", marginLeft: 1 }}>· {safeAdvisors.length} advisors</span>
+                          )}
+                          <i className={`ti ti-chevron-${showOptions ? "up" : "down"}`} style={{ fontSize: 11 }} />
+                        </button>
+                        <span style={{ flex: 1 }} />
+                        <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
+                      </div>
                     </div>
 
                     {error && (
@@ -2463,13 +2575,14 @@ Do not describe what you're doing. Just produce the writing.`,
 
                     {/* Primary CTAs */}
                     {!showFollowUpInput && (
-                      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+                      <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
                         <button onClick={() => { setShowFollowUpInput(true); setTimeout(() => document.getElementById("follow-up-textarea")?.focus(), 50); }}
-                          style={{ flex: 1, padding: "13px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", transition: "opacity .15s" }}>
+                          className="btn-cta-primary">
+                          <i className="ti ti-message-plus" style={{ fontSize: 16 }} />
                           ASK A FOLLOW-UP
                         </button>
-                        <button onClick={handleNewCouncil}
-                          style={{ flex: 1, padding: "13px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--bg3)", border: "1px solid var(--bd)", color: "var(--t2)", borderRadius: 6, cursor: "pointer", transition: "all .15s" }}>
+                        <button onClick={handleNewCouncil} className="btn-cta-secondary">
+                          <i className="ti ti-plus" style={{ fontSize: 16 }} />
                           NEW COUNCIL
                         </button>
                       </div>
@@ -2485,7 +2598,8 @@ Do not describe what you're doing. Just produce the writing.`,
                           onChange={e => setFollowUpInput(e.target.value)}
                           onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleFollowUpSubmit(); }}
                           placeholder="Ask a follow-up, push deeper on any point, or request a different angle…"
-                          style={{ width: "100%", minHeight: 80, padding: "14px 16px", fontSize: 14, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s", marginBottom: 10 }}
+                          className="council-input"
+                          style={{ minHeight: 90, marginBottom: 10 }}
                         />
 
                         <FileAttachmentPanel files={attachedFiles} onAdd={addFiles} onRemove={removeFile} />
@@ -2499,7 +2613,7 @@ Do not describe what you're doing. Just produce the writing.`,
 
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
                           <button onClick={handleFollowUpSubmit} disabled={!followUpInput.trim()}
-                            style={{ flex: 1, padding: "11px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !followUpInput.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
+                            className="btn-convene" style={{ fontSize: 17, letterSpacing: 2, padding: "13px 20px" }}>
                             FOLLOW UP
                           </button>
                           <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
