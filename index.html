@@ -1338,18 +1338,28 @@ Do not describe what you're doing. Just produce the writing.`,
               )}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {advisors.map(advisor => {
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {advisors.map((advisor, i) => {
               const isOn = selected.includes(advisor.id);
               const isDisabled = isOn && selected.length <= 2;
               return (
                 <button key={advisor.id} onClick={() => toggle(advisor.id)} disabled={isDisabled}
-                  title={isDisabled ? "Minimum 2 required" : advisor.tagline}
+                  title={isDisabled ? "Minimum 2 required" : ""}
                   className="advisor-pill"
-                  style={{ border: `1.5px solid ${isOn ? advisor.ring : "var(--bd)"}`, background: isOn ? advisor.tint : "var(--bg3)", opacity: isDisabled ? 0.35 : 1 }}>
-                  <i className={`ti ${advisor.icon}`} style={{ fontSize: 12, color: isOn ? advisor.accent : "var(--t3)" }} />
-                  <span style={{ fontSize: 11, fontWeight: 500, color: isOn ? "var(--t1)" : "var(--t3)" }}>{advisor.name}</span>
-                  {isOn && <i className="ti ti-check" style={{ fontSize: 10, color: advisor.accent }} />}
+                  style={{
+                    flexDirection: "column", alignItems: "flex-start", gap: 3,
+                    borderRadius: 8, padding: "9px 12px",
+                    gridColumn: (advisors.length % 2 !== 0 && i === advisors.length - 1) ? "span 2" : undefined,
+                    border: `1.5px solid ${isOn ? advisor.ring : "var(--bd)"}`,
+                    background: isOn ? advisor.tint : "var(--bg3)",
+                    opacity: isDisabled ? 0.35 : 1,
+                  }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                    <i className={`ti ${advisor.icon}`} style={{ fontSize: 12, color: isOn ? advisor.accent : "var(--t3)", flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, fontWeight: 600, color: isOn ? "var(--t1)" : "var(--t2)", flex: 1 }}>{advisor.name}</span>
+                    {isOn && <i className="ti ti-check" style={{ fontSize: 10, color: advisor.accent }} />}
+                  </div>
+                  <p style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--mono)", margin: 0, lineHeight: 1.3 }}>{advisor.tagline}</p>
                 </button>
               );
             })}
@@ -2502,17 +2512,25 @@ Do not describe what you're doing. Just produce the writing.`,
                       </div>
                     )}
 
-                    {/* Advisor pills */}
+                    {/* Advisor cards with description */}
                     {(() => {
                       const displayAdvisors = safeAdvisors;
                       return (
                         <div>
                           <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Your council</p>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                            {displayAdvisors.map(a => (
-                              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 20, background: a.tint, border: `1px solid ${a.ring}` }}>
-                                <i className={`ti ${a.icon}`} style={{ fontSize: 11, color: a.accent }} />
-                                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
+                          <div className="advisor-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                            {displayAdvisors.map((a, i) => (
+                              <div key={a.id} style={{
+                                gridColumn: (displayAdvisors.length % 2 !== 0 && i === displayAdvisors.length - 1) ? "span 2" : undefined,
+                                display: "flex", alignItems: "center", gap: 10,
+                                padding: "10px 13px", borderRadius: 8,
+                                background: a.tint, border: `1px solid ${a.ring}`,
+                              }}>
+                                <i className={`ti ${a.icon}`} style={{ fontSize: 14, color: a.accent, flexShrink: 0 }} />
+                                <div>
+                                  <p style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)", margin: "0 0 2px" }}>{a.name}</p>
+                                  <p style={{ fontSize: 10, color: "var(--t3)", margin: 0, fontFamily: "var(--mono)", lineHeight: 1.3 }}>{a.tagline}</p>
+                                </div>
                               </div>
                             ))}
                           </div>
