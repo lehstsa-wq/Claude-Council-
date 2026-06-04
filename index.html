@@ -12,6 +12,9 @@
   <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
   <!-- Mermaid: diagram rendering for the optional diagram generation feature -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+  <script src="https://unpkg.com/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://apis.google.com/js/api.js" async defer></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.4.0/dist/tabler-icons.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rubik:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
   <style>
@@ -137,17 +140,28 @@
       display: flex; align-items: center; gap: 12; margin: 32px 0 24px;
     }
 
-    /* The "one thing to do first" uses body-weight text with a left border accent.
-       This deliberately avoids the oversized display font previously used here. */
+    /* "One Thing to Do First" — amber callout, elevated, impossible to miss */
     .first-action-item {
-      border-left: 3px solid var(--green);
-      padding: 14px 18px 14px 20px;
-      background: var(--green-tint);
-      border-radius: 0 6px 6px 0;
-      font-size: 14px;
-      line-height: 1.75;
+      border-left: 4px solid var(--amber);
+      padding: 18px 22px 18px 24px;
+      background: var(--amber-tint);
+      border-radius: 0 8px 8px 0;
+      font-size: 15px;
+      line-height: 1.8;
       color: var(--t1);
+      box-shadow: 0 2px 16px oklch(0% 0 0 / 0.18);
     }
+
+    /* Verdict tabs */
+    .verdict-tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--bd); margin-bottom: 14px; overflow-x: auto; }
+    .verdict-tab-bar::-webkit-scrollbar { height: 0; }
+    .verdict-tab { display: flex; align-items: center; gap: 5px; padding: 7px 13px; font-size: 11px; font-weight: 500; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; transition: color .15s; margin-bottom: -1px; }
+
+    /* App header bar */
+    .app-header { height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg2); border-bottom: 1px solid var(--bd); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+
+    /* Options row */
+    .options-panel { padding: 12px 14px; background: var(--bg3); border: 1px solid var(--bd); border-radius: 0 0 8px 8px; margin-top: -1px; }
 
     /* Follow-up input section anchored at the bottom of the thread */
     .follow-up-section {
@@ -173,6 +187,42 @@
       overflow-x: auto;
     }
     .diagram-card svg { max-width: 100%; height: auto; display: block; }
+
+    /* ── Responsive breakpoints ────────────────────────────────────── */
+    @media (max-width: 768px) {
+      :root { --sidebar-w: 100%; }
+
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100dvh;
+        z-index: 200;
+        width: 280px;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+      }
+
+      .sidebar.is-open-mobile {
+        transform: translateX(0);
+        box-shadow: 8px 0 32px rgba(0,0,0,0.5);
+      }
+
+      .sidebar.is-collapsed {
+        width: 280px;
+        opacity: 1;
+        border-color: var(--bd);
+        pointer-events: auto;
+        transform: translateX(-100%);
+      }
+
+      .main-panel { height: auto; overflow-y: visible; }
+
+      .advisor-grid { grid-template-columns: 1fr !important; }
+
+      .council-content { padding: 0 16px !important; }
+      .council-header  { padding: 20px 16px 0 !important; }
+    }
   </style>
 </head>
 <body>
@@ -321,6 +371,61 @@
     // pushes them to take positions and produce non-obvious synthesis rather
     // than summarising what the advisors said.
     const CHAIRMAN_SYSTEM = "You are the Chairman of an LLM Council. You are a decision-maker, not a reporter. Your role: synthesize conflicting expert views into decisive, specific action. Take positions. Resolve disagreements by naming who is right and exactly why. Your verdict must contain at least one insight that no single advisor produced. Be specific enough to act on — no platitudes, no hedging. In multi-turn conversations, build forward; never restate what prior turns already established.";
+
+    const EXAMPLE_PROMPTS = [
+      "Should I quit my job to start a company now, or wait until I have 12 months of savings?",
+      "I'm deciding between two job offers — how do I think through this trade-off?",
+      "My co-founder and I disagree on product direction. How do we resolve this without damaging the relationship?",
+    ];
+
+    /* ── FILE-AWARE MESSAGE BUILDER ─────────────────────────────────────
+       Returns a plain string when there are no files (zero overhead), or a
+       multipart content array with cached text blocks, document blocks, and
+       image blocks when files are attached.                                 */
+    function buildUserMessageWithFiles(prompt, attachedFiles) {
+      if (!attachedFiles || !attachedFiles.length) return prompt;
+
+      const textFiles  = attachedFiles.filter(f => f.type === "text");
+      const pdfFiles   = attachedFiles.filter(f => f.type === "pdf");
+      const imageFiles = attachedFiles.filter(f => f.type === "image");
+      const errorFiles = attachedFiles.filter(f => f.type === "error");
+
+      const content = [];
+
+      // Text/code files — batch into one cached block so calls 2–N are cheap
+      if (textFiles.length) {
+        content.push({
+          type: "text",
+          text: textFiles.map(f =>
+            `=== FILE: ${f.name} ===\n${f.textContent || ""}\n=== END: ${f.name} ===`
+          ).join("\n\n"),
+          cache_control: { type: "ephemeral" },
+        });
+      }
+
+      // PDFs — Anthropic native document blocks
+      for (const f of pdfFiles) {
+        content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64Data } });
+      }
+
+      // Images — vision blocks
+      for (const f of imageFiles) {
+        content.push({ type: "image", source: { type: "base64", media_type: f.mimeType, data: f.base64Data } });
+      }
+
+      // Unreadable files — plain note so the model knows they were skipped
+      if (errorFiles.length) {
+        content.push({
+          type: "text",
+          text: errorFiles.map(f => `NOTE: Could not read ${f.name} — ${f.errorMessage}`).join("\n"),
+        });
+      }
+
+      // Actual prompt goes last
+      content.push({ type: "text", text: prompt });
+
+      return content;
+    }
 
     /* ── MODES ──────────────────────────────────────────────────────────
        Each mode supplies its own advisors array and chairmanSystem.
@@ -518,14 +623,18 @@ Do not describe what you're doing. Just produce the writing.`,
        Anthropic reuses this across calls in the same session window —
        critical for multi-turn threads where prior context grows each turn.  */
     function buildMessages(user, cachedText) {
-      if (!cachedText) return [{ role: "user", content: user }];
-      return [{
-        role: "user",
-        content: [
-          { type: "text", text: cachedText, cache_control: { type: "ephemeral" } },
-          { type: "text", text: user },
-        ],
-      }];
+      const cacheBlock = cachedText
+        ? { type: "text", text: cachedText, cache_control: { type: "ephemeral" } }
+        : null;
+
+      if (!cacheBlock) return [{ role: "user", content: user }];
+
+      // user is a string or an array of content blocks
+      const userBlocks = typeof user === "string"
+        ? [{ type: "text", text: user }]
+        : user;
+
+      return [{ role: "user", content: [cacheBlock, ...userBlocks] }];
     }
 
     async function* streamClaude(system, user, apiKey, model, cachedText, maxTokens = 1500) {
@@ -615,11 +724,6 @@ Do not describe what you're doing. Just produce the writing.`,
       return { verdictText: rawText, diagramCode: null };
     }
 
-    // Serializes user context + completed turns into a single cached prefix.
-    // User context is prepended first so it's always in scope for every call.
-    // Including full advisor texts ensures the block reliably exceeds Anthropic's
-    // 1024-token minimum for ephemeral cache eligibility. On a warm cache this
-    // entire block costs zero input tokens across all parallel advisor calls.
     function buildSessionContext(userContext, completedTurns) {
       const parts = [];
       if (userContext && userContext.trim()) {
@@ -640,6 +744,8 @@ Do not describe what you're doing. Just produce the writing.`,
       }
       return parts.length ? parts.join("\n\n===\n\n") : null;
     }
+    // Backward-compat alias used by executeCouncilTurn when no userContext is needed
+    const buildPriorTurnsContext = turns => buildSessionContext(null, turns);
 
     function relativeTime(ts) {
       const m = Math.floor((Date.now() - ts) / 60000);
@@ -723,11 +829,453 @@ Do not describe what you're doing. Just produce the writing.`,
       );
     }
 
+    /* ── FILE UPLOAD UTILITIES ──────────────────────────────────────── */
+
+    const attachBtnStyle = {
+      display: "flex", alignItems: "center", gap: 6,
+      padding: "6px 12px", borderRadius: 6,
+      background: "var(--bg3)", border: "1px solid var(--bd)",
+      color: "var(--t3)", fontSize: 12, cursor: "pointer",
+      fontFamily: "var(--sans)", transition: "all .15s",
+    };
+
+    function fileIcon(mimeType) {
+      if (!mimeType) return "ti-file";
+      if (mimeType.startsWith("image/")) return "ti-photo";
+      if (mimeType === "application/pdf") return "ti-file-type-pdf";
+      if (mimeType.includes("word")) return "ti-file-type-doc";
+      if (mimeType === "text/csv") return "ti-table";
+      if (mimeType === "application/json") return "ti-braces";
+      if (mimeType.startsWith("text/")) return "ti-file-text";
+      return "ti-file";
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return `${bytes}B`;
+      if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+    }
+
+    function guessMimeType(filename) {
+      const ext = filename.split(".").pop()?.toLowerCase();
+      const map = {
+        txt: "text/plain", md: "text/markdown", csv: "text/csv",
+        json: "application/json", html: "text/html", xml: "application/xml",
+        py: "text/x-python", js: "text/javascript", ts: "text/typescript",
+        jsx: "text/javascript", tsx: "text/typescript",
+        pdf: "application/pdf",
+        docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        doc: "application/msword",
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        gif: "image/gif", webp: "image/webp",
+      };
+      return map[ext] || "application/octet-stream";
+    }
+
+    function isCodeFile(filename) {
+      const codeExts = ["py","js","ts","jsx","tsx","css","html","json","yaml","yml","sh","bash","rb","go","rs","java","cpp","c","h","sql","graphql","proto"];
+      return codeExts.includes(filename.split(".").pop()?.toLowerCase());
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error(`Failed to read: ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function readFileToAttachment(file) {
+      const id       = `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const mimeType = file.type || guessMimeType(file.name);
+
+      if (mimeType.startsWith("image/")) {
+        const base64 = await fileToBase64(file);
+        return { id, name: file.name, type: "image", mimeType, size: file.size, source: "local", base64Data: base64.split(",")[1] };
+      }
+
+      if (mimeType === "application/pdf") {
+        const base64 = await fileToBase64(file);
+        return { id, name: file.name, type: "pdf", mimeType, size: file.size, source: "local", base64Data: base64.split(",")[1] };
+      }
+
+      if (mimeType.startsWith("text/") || ["application/json","application/xml"].includes(mimeType) || isCodeFile(file.name)) {
+        const text = await file.text();
+        return { id, name: file.name, type: "text", mimeType, size: file.size, source: "local", textContent: text };
+      }
+
+      if (mimeType.includes("word") || file.name.endsWith(".docx")) {
+        if (typeof mammoth !== "undefined") {
+          const arrayBuffer = await file.arrayBuffer();
+          const result      = await mammoth.extractRawText({ arrayBuffer });
+          return { id, name: file.name, type: "text", mimeType: "text/plain", size: file.size, source: "local", textContent: result.value };
+        }
+        return { id, name: file.name, type: "error", mimeType, size: file.size, source: "local", errorMessage: "DOCX parsing requires mammoth.js. Convert to .txt or .pdf first." };
+      }
+
+      try {
+        const text = await file.text();
+        return { id, name: file.name, type: "text", mimeType: "text/plain", size: file.size, source: "local", textContent: text };
+      } catch { return null; }
+    }
+
+    function estimateFileTokens(files) {
+      return files.reduce((sum, f) => {
+        if (f.type === "text")              return sum + Math.ceil((f.textContent?.length || 0) / 4);
+        if (f.type === "pdf" || f.type === "image") return sum + Math.ceil((f.size || 0) / 3);
+        return sum;
+      }, 0);
+    }
+
+    async function fetchDriveFile(doc, accessToken) {
+      const id       = `gdrive-${doc.id}`;
+      const mimeType = doc.mimeType;
+      let downloadUrl, effectiveMime = mimeType;
+
+      if (mimeType === "application/vnd.google-apps.document") {
+        downloadUrl  = `https://www.googleapis.com/drive/v3/files/${doc.id}/export?mimeType=text/plain`;
+        effectiveMime = "text/plain";
+      } else if (mimeType === "application/vnd.google-apps.spreadsheet") {
+        downloadUrl  = `https://www.googleapis.com/drive/v3/files/${doc.id}/export?mimeType=text/csv`;
+        effectiveMime = "text/csv";
+      } else {
+        downloadUrl = `https://www.googleapis.com/drive/v3/files/${doc.id}?alt=media`;
+      }
+
+      const res = await fetch(downloadUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error(`Drive API error: ${res.status}`);
+
+      if (effectiveMime.startsWith("image/")) {
+        const blob   = await res.blob();
+        const base64 = await new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(",")[1]);
+          reader.readAsDataURL(blob);
+        });
+        return { id, name: doc.name, type: "image", mimeType: effectiveMime, size: doc.sizeBytes || 0, source: "gdrive", base64Data: base64 };
+      }
+
+      if (effectiveMime === "application/pdf") {
+        const blob   = await res.blob();
+        const base64 = await new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(",")[1]);
+          reader.readAsDataURL(blob);
+        });
+        return { id, name: doc.name, type: "pdf", mimeType: effectiveMime, size: doc.sizeBytes || 0, source: "gdrive", base64Data: base64 };
+      }
+
+      const text = await res.text();
+      return { id, name: doc.name, type: "text", mimeType: effectiveMime, size: doc.sizeBytes || 0, source: "gdrive", textContent: text };
+    }
+
+    /* ── FILE ATTACHMENT PANEL ───────────────────────────────────────── */
+
+    function GoogleDriveButton({ onAdd }) {
+      const [clientId,   setClientId]   = useState(() => localStorage.getItem("council-gdrive-client-id") || "");
+      const [showSetup,  setShowSetup]  = useState(false);
+      const [loading,    setLoading]    = useState(false);
+      const [draftId,    setDraftId]    = useState(() => localStorage.getItem("council-gdrive-client-id") || "");
+      const tokenRef = useRef(null);
+
+      const ensureGapiLoaded = () => new Promise((resolve, reject) => {
+        if (window.gapi?.client) { resolve(); return; }
+        if (!window.gapi)        { reject(new Error("Google API script not loaded yet. Try again in a moment.")); return; }
+        window.gapi.load("client:picker", { callback: resolve, onerror: reject });
+      });
+
+      const openPicker = async () => {
+        if (!clientId) { setShowSetup(true); return; }
+        setLoading(true);
+        try {
+          await ensureGapiLoaded();
+
+          await new Promise((resolve, reject) => {
+            const tokenClient = window.google.accounts.oauth2.initTokenClient({
+              client_id: clientId,
+              scope: "https://www.googleapis.com/auth/drive.readonly",
+              callback: (response) => {
+                if (response.error) reject(new Error(response.error));
+                else { tokenRef.current = response.access_token; resolve(); }
+              },
+            });
+            tokenClient.requestAccessToken({ prompt: tokenRef.current ? "" : "consent" });
+          });
+
+          await window.gapi.client.init({});
+
+          const picker = new window.google.picker.PickerBuilder()
+            .addView(
+              new window.google.picker.DocsView()
+                .setIncludeFolders(false)
+                .setMimeTypes([
+                  "text/plain","application/pdf","text/markdown","application/json","text/csv",
+                  "image/png","image/jpeg","image/webp","image/gif",
+                  "application/vnd.google-apps.document",
+                  "application/vnd.google-apps.spreadsheet",
+                ].join(","))
+            )
+            .setOAuthToken(tokenRef.current)
+            .setCallback(async (data) => {
+              if (data.action !== window.google.picker.Action.PICKED) return;
+              const results = [];
+              for (const doc of data.docs) {
+                try {
+                  const item = await fetchDriveFile(doc, tokenRef.current);
+                  if (item) results.push(item);
+                } catch (err) { console.error("Drive fetch error:", doc.name, err); }
+              }
+              if (results.length) onAdd(results);
+            })
+            .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+            .build();
+          picker.setVisible(true);
+        } catch (err) {
+          alert("Google Drive error: " + err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <>
+          <button onClick={openPicker} disabled={loading} style={attachBtnStyle}>
+            {loading
+              ? <i className="ti ti-loader-2 spin" style={{ fontSize: 13 }} />
+              : <i className="ti ti-brand-google-drive" style={{ fontSize: 13, color: "var(--green)" }} />
+            }
+            Drive
+          </button>
+
+          {showSetup && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+              onClick={e => { if (e.target === e.currentTarget) setShowSetup(false); }}>
+              <div style={{ background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 10, padding: 28, width: 420, maxWidth: "90vw" }}>
+                <p className="tag" style={{ color: "var(--amber)", marginBottom: 8 }}>Google Drive Setup</p>
+                <p style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.7, marginBottom: 16 }}>
+                  You need a Google Cloud OAuth 2.0 Client ID. Go to{" "}
+                  <strong style={{ color: "var(--t1)" }}>console.cloud.google.com</strong>, enable
+                  the Drive API, create a Web Client ID, and add{" "}
+                  <strong style={{ color: "var(--t1)" }}>{window.location.origin}</strong> as an
+                  authorized JavaScript origin.
+                </p>
+                <label className="tag" style={{ display: "block", color: "var(--t3)", marginBottom: 6 }}>OAuth Client ID</label>
+                <input type="text" value={draftId} onChange={e => setDraftId(e.target.value)}
+                  placeholder="xxxx.apps.googleusercontent.com"
+                  style={{ width: "100%", padding: "9px 12px", fontSize: 12, fontFamily: "var(--mono)", background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: 6, color: "var(--t1)", outline: "none", marginBottom: 14 }} />
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => setShowSetup(false)}
+                    style={{ padding: "8px 16px", borderRadius: 6, background: "none", border: "1px solid var(--bd)", color: "var(--t2)", cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                  <button onClick={() => {
+                      localStorage.setItem("council-gdrive-client-id", draftId);
+                      setClientId(draftId);
+                      setShowSetup(false);
+                      setTimeout(openPicker, 100);
+                    }}
+                    style={{ padding: "8px 16px", borderRadius: 6, background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", color: "var(--amber)", cursor: "pointer" }}>
+                    Save &amp; Connect
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    function FileAttachmentPanel({ files, onAdd, onRemove }) {
+      const fileInputRef   = useRef(null);
+      const folderInputRef = useRef(null);
+      const imageInputRef  = useRef(null);
+
+      const handleFiles = async (fileList) => {
+        const results = [];
+        for (const file of Array.from(fileList)) {
+          try {
+            const item = await readFileToAttachment(file);
+            if (item) results.push(item);
+          } catch (err) { console.error("Failed to read file:", file.name, err); }
+        }
+        if (results.length) onAdd(results);
+      };
+
+      const handleFolderUpload = async (fileList) => {
+        const usableFiles = Array.from(fileList).filter(f => {
+          const path = f.webkitRelativePath || f.name;
+          return !path.split("/").some(part =>
+            part.startsWith(".") ||
+            ["node_modules", "__pycache__", ".git", "dist", "build", ".next", "out", "coverage"].includes(part)
+          );
+        });
+
+        if (!usableFiles.length) return;
+
+        if (usableFiles.length > 50) {
+          if (!window.confirm(
+            `This folder contains ${usableFiles.length} readable files after filtering.\nReading all of them may use a lot of tokens. Continue?`
+          )) return;
+        }
+
+        const results = [];
+        for (const file of usableFiles) {
+          try {
+            const item = await readFileToAttachment(file);
+            if (item) {
+              item.name = file.webkitRelativePath || file.name;
+              results.push(item);
+            }
+          } catch (err) { console.error("Failed to read:", file.name, err); }
+        }
+        if (results.length) onAdd(results);
+      };
+
+      return (
+        <div style={{ marginBottom: 10 }}>
+          {/* Hidden file inputs */}
+          <input ref={fileInputRef} type="file" multiple
+            accept=".txt,.md,.pdf,.docx,.doc,.csv,.json,.html,.xml,.py,.js,.ts,.jsx,.tsx"
+            style={{ display: "none" }} onChange={e => { handleFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={folderInputRef} type="file" webkitdirectory="" multiple
+            style={{ display: "none" }} onChange={e => { handleFolderUpload(e.target.files); e.target.value = ""; }} />
+          <input ref={imageInputRef} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp"
+            style={{ display: "none" }} onChange={e => { handleFiles(e.target.files); e.target.value = ""; }} />
+
+          {/* Buttons row */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: files.length ? 10 : 0 }}>
+            <button onClick={() => fileInputRef.current?.click()} style={attachBtnStyle}>
+              <i className="ti ti-file-text" style={{ fontSize: 13 }} />Files
+            </button>
+            <button onClick={() => folderInputRef.current?.click()} style={attachBtnStyle}>
+              <i className="ti ti-folder" style={{ fontSize: 13 }} />Folder
+            </button>
+            <button onClick={() => imageInputRef.current?.click()} style={attachBtnStyle}>
+              <i className="ti ti-photo" style={{ fontSize: 13 }} />Images
+            </button>
+            <GoogleDriveButton onAdd={onAdd} />
+          </div>
+
+          {/* Attached file chips */}
+          {files.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {files.map(f => (
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, background: "var(--bg3)", border: "1px solid var(--bd)", fontSize: 11, color: "var(--t2)" }}>
+                  <i className={`ti ${fileIcon(f.mimeType)}`} style={{ fontSize: 11, color: f.type === "error" ? "var(--red)" : "var(--amber)" }} />
+                  <span style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                  <span style={{ fontSize: 9, color: "var(--t3)", fontFamily: "var(--mono)" }}>{formatFileSize(f.size)}</span>
+                  {f.source === "gdrive" && <span style={{ fontSize: 9, color: "var(--blue)", fontFamily: "var(--mono)" }}>DRIVE</span>}
+                  {f.type === "error" && (
+                    <span style={{ fontSize: 9, color: "var(--red)", fontFamily: "var(--mono)" }} title={f.errorMessage}>ERR</span>
+                  )}
+                  <button onClick={() => onRemove(f.id)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", padding: 0, lineHeight: 1 }}>
+                    <i className="ti ti-x" style={{ fontSize: 10 }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function FileTokenWarning({ files }) {
+      if (!files.length) return null;
+      const tokens  = estimateFileTokens(files);
+      const isLarge = tokens > 20000;
+      return (
+        <p style={{ fontSize: 11, fontFamily: "var(--mono)", color: isLarge ? "var(--amber)" : "var(--t3)", marginBottom: 10 }}>
+          {isLarge && <i className="ti ti-alert-triangle" style={{ fontSize: 11, marginRight: 4 }} />}
+          ~{tokens.toLocaleString()} tokens from attached files
+          {isLarge && " · consider reducing context"}
+        </p>
+      );
+    }
+
+    /* ── ADVISOR PICKER ─────────────────────────────────────────────── */
+
+    function AdvisorPicker({ selected, onChange }) {
+      const toggle = (id) => {
+        const next = selected.includes(id)
+          ? selected.filter(x => x !== id)
+          : [...selected, id];
+        if (next.length < 2) return;
+        onChange(next);
+      };
+
+      return (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--bd)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <p className="tag" style={{ color: "var(--t3)" }}>Advisors</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => onChange(ADVISORS.map(a => a.id))}
+                style={{ fontSize: 10, color: "var(--t3)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                All
+              </button>
+              <button onClick={() => onChange(ADVISORS.slice(0, 3).map(a => a.id))}
+                style={{ fontSize: 10, color: "var(--t3)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                3 Core
+              </button>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {ADVISORS.map(advisor => {
+              const isOn = selected.includes(advisor.id);
+              const isDisabled = isOn && selected.length <= 2;
+              return (
+                <button key={advisor.id} onClick={() => toggle(advisor.id)} disabled={isDisabled}
+                  title={isDisabled ? "Minimum 2 advisors required" : advisor.tagline}
+                  style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 20,
+                    border: `1px solid ${isOn ? advisor.accent.replace(")", " / 0.4)").replace("var(", "").replace(")", "") : "var(--bd)"}`,
+                    borderColor: isOn ? undefined : "var(--bd)",
+                    outline: isOn ? `1px solid ${advisor.accent}` : "none",
+                    outlineOffset: -1,
+                    background: isOn ? advisor.tint : "var(--bg3)",
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                    opacity: isDisabled ? 0.4 : 1,
+                    transition: "all .15s",
+                  }}>
+                  <i className={`ti ${advisor.icon}`} style={{ fontSize: 12, color: isOn ? advisor.accent : "var(--t3)" }} />
+                  <span style={{ fontSize: 11, fontWeight: 500, color: isOn ? "var(--t1)" : "var(--t3)" }}>
+                    {advisor.name}
+                  </span>
+                  {isOn && <i className="ti ti-check" style={{ fontSize: 10, color: advisor.accent }} />}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 10, color: "var(--t3)", marginTop: 6, fontFamily: "var(--mono)" }}>
+            {selected.length} of {ADVISORS.length} advisors · minimum 2 required
+          </p>
+        </div>
+      );
+    }
+
+    /* ── APP HEADER BAR ─────────────────────────────────────────────── */
+
+    function AppHeader({ isRunning }) {
+      return (
+        <div className="app-header">
+          <span style={{ fontFamily: "var(--display)", fontSize: 15, letterSpacing: 2, color: "var(--t2)" }}>
+            SAI'S COUNCIL
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: isRunning ? "var(--amber)" : "var(--green)", transition: "background .4s", boxShadow: isRunning ? "0 0 6px var(--amber)" : "0 0 6px var(--green)" }} />
+            <span className="tag" style={{ fontSize: 9, color: "var(--t3)" }}>{isRunning ? "RUNNING" : "IDLE"}</span>
+          </div>
+        </div>
+      );
+    }
+
     /* ── HISTORY SIDEBAR ────────────────────────────────────────────── */
 
-    function HistorySidebar({ sessions, activeSessionId, isOpen, onSelect, onNewCouncil, onToggle }) {
+    function HistorySidebar({ sessions, activeSessionId, isOpen, isMobile, onSelect, onNewCouncil, onToggle }) {
+      const cls = isMobile
+        ? `sidebar${isOpen ? " is-open-mobile" : " is-collapsed"}`
+        : `sidebar${isOpen ? "" : " is-collapsed"}`;
       return (
-        <aside className={`sidebar${isOpen ? "" : " is-collapsed"}`} aria-label="Session history">
+        <aside className={cls} aria-label="Session history">
           <div className="sidebar__head">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <span className="tag" style={{ color: "var(--t3)" }}>History</span>
@@ -1046,8 +1594,9 @@ Do not describe what you're doing. Just produce the writing.`,
 
     /* ── PHASE STEPPER ──────────────────────────────────────────────── */
 
-    function PhaseStepper({ phase, showReview = true }) {
-      const allSteps = [{ id: "advisors", label: "Advisors" }, { id: "review", label: "Peer review" }, { id: "synthesis", label: "Chairman" }];
+    function PhaseStepper({ phase, showReview = true, advisorsDone = 0, advisorsTotal = 5 }) {
+      const advisorLabel = phase === "advisors" ? `Advisors (${advisorsDone}/${advisorsTotal})` : "Advisors";
+      const allSteps = [{ id: "advisors", label: advisorLabel }, { id: "review", label: "Peer review" }, { id: "synthesis", label: "Chairman" }];
       const steps    = showReview ? allSteps : allSteps.filter(s => s.id !== "review");
       const activeIdx = steps.findIndex(s => s.id === phase);
       return (
@@ -1074,9 +1623,9 @@ Do not describe what you're doing. Just produce the writing.`,
 
     /* ── ADVISOR ROW (live streaming) ───────────────────────────────── */
 
-    function AdvisorRow({ advisor, live, done, phase }) {
+    function AdvisorRow({ advisor, live, done, phase, isSpotlit = true }) {
       return (
-        <div style={{ padding: "13px 16px", background: done ? "var(--green-tint)" : "var(--bg2)", border: `1px solid ${done ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 7, marginBottom: 5, transition: "background .3s, border-color .3s" }}>
+        <div style={{ padding: "13px 16px", background: done ? "var(--green-tint)" : "var(--bg2)", border: `1px solid ${done ? "var(--green-ring)" : "var(--bd)"}`, borderRadius: 7, marginBottom: 5, transition: "background .3s, border-color .3s, opacity .2s", opacity: done || isSpotlit ? 1 : 0.55 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: live ? 8 : 0 }}>
             {done
               ? <i className="ti ti-check" style={{ fontSize: 13, color: "var(--green)", flexShrink: 0 }} />
@@ -1152,6 +1701,66 @@ Do not describe what you're doing. Just produce the writing.`,
       return               { label: "Mixed views",             color: "var(--amber)", tint: "var(--amber-tint)", ring: "var(--amber-ring)", icon: "ti-wave-sine" };
     }
 
+    /* ── VERDICT TABS ───────────────────────────────────────────────── */
+
+    function VerdictTabs({ sec, diagramCode }) {
+      const allTabs = [
+        { id: "agrees",  label: "Agrees",        icon: "ti-check",              accent: "var(--green)",  tint: "var(--green-tint)",  ring: "var(--green-ring)",  text: sec.agrees  },
+        { id: "clashes", label: "Clashes",        icon: "ti-arrows-exchange",    accent: "var(--red)",    tint: "var(--red-tint)",    ring: "var(--red-ring)",    text: sec.clashes },
+        { id: "blind",   label: "Blind Spots",    icon: "ti-eye-off",            accent: "var(--purple)", tint: "var(--purple-tint)", ring: "var(--purple-ring)", text: sec.blind   },
+        { id: "rec",     label: "Recommendation", icon: "ti-star",               accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  text: sec.rec     },
+        { id: "first",   label: "One Thing",      icon: "ti-arrow-narrow-right", accent: "var(--amber)",  tint: "var(--amber-tint)",  ring: "var(--amber-ring)",  text: sec.first   },
+      ].filter(t => t.text);
+      if (diagramCode) allTabs.push({ id: "diagram", label: "Diagram", icon: "ti-chart-dots-3", accent: "var(--blue)", tint: "var(--blue-tint)", ring: "var(--blue-ring)", text: null });
+
+      const [activeTab, setActiveTab] = useState(() => allTabs.find(t => t.id === "rec")?.id || allTabs[0]?.id || "rec");
+      const tab = allTabs.find(t => t.id === activeTab) || allTabs[0];
+      if (!tab) return null;
+
+      return (
+        <div style={{ marginBottom: 28 }}>
+          <div className="verdict-tab-bar">
+            {allTabs.map(t => (
+              <button key={t.id} className="verdict-tab" onClick={() => setActiveTab(t.id)}
+                style={{ color: activeTab === t.id ? t.accent : "var(--t3)", borderBottomColor: activeTab === t.id ? t.accent : "transparent" }}>
+                <i className={`ti ${t.icon}`} style={{ fontSize: 11 }} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="fade-up" key={activeTab}>
+            {activeTab === "diagram" ? (
+              <MermaidDiagram code={diagramCode} />
+            ) : activeTab === "first" ? (
+              <div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <CopyBtn text={tab.text} />
+                </div>
+                <div className="first-action-item">
+                  <Md text={tab.text} />
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                  <CopyBtn text={tab.text} />
+                </div>
+                <div style={{ padding: "16px 18px", background: tab.tint, border: `1px solid ${tab.ring}`, borderRadius: 8 }}>
+                  <Md text={tab.text} />
+                </div>
+              </div>
+            )}
+            {sec.raw && (
+              <div style={{ padding: "18px 20px", marginTop: 12, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
+                <Md text={sec.raw} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     /* ── TURN CARD ──────────────────────────────────────────────────────
        Renders a single completed council turn. Handles its own accordion
        open/close state via a turn-scoped key prefix so multiple turns in a
@@ -1190,64 +1799,13 @@ Do not describe what you're doing. Just produce the writing.`,
           {(() => {
             const signal = detectConsensus(turn.verdict);
             return (
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: 8,
-                padding: "5px 12px", marginBottom: 20,
-                background: signal.tint,
-                border: `1px solid ${signal.ring}`,
-                borderRadius: 20,
-              }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 12px", marginBottom: 20, background: signal.tint, border: `1px solid ${signal.ring}`, borderRadius: 20 }}>
                 <i className={`ti ${signal.icon}`} style={{ fontSize: 12, color: signal.color }} />
                 <span className="tag" style={{ color: signal.color, fontSize: 9 }}>{signal.label}</span>
               </div>
             );
           })()}
-
-          <VerdictSection label="Where the council agrees"  icon="ti-check"          accent="var(--green)"  tint="var(--green-tint)"  ring="var(--green-ring)"  text={sec.agrees}  />
-          <VerdictSection label="Where the council clashes" icon="ti-arrows-exchange" accent="var(--red)"    tint="var(--red-tint)"    ring="var(--red-ring)"    text={sec.clashes} />
-          <VerdictSection label="Blind spots caught"        icon="ti-eye-off"         accent="var(--purple)" tint="var(--purple-tint)" ring="var(--purple-ring)" text={sec.blind}   />
-
-          {sec.rec && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <i className="ti ti-star" style={{ fontSize: 13, color: "var(--amber)" }} />
-                  <span className="tag" style={{ color: "var(--amber)", fontSize: 10 }}>The recommendation</span>
-                </div>
-                <CopyBtn text={sec.rec} />
-              </div>
-              <div style={{ padding: "16px 18px", background: "var(--amber-tint)", border: "1px solid var(--amber-ring)", borderRadius: 8 }}>
-                <Md text={sec.rec} />
-              </div>
-            </div>
-          )}
-
-          {/* "One thing to do first" — rendered at body text weight with a
-              left border accent rather than a large display typeface. This
-              keeps it readable and proportional within the conversation flow. */}
-          {sec.first && (
-            <div style={{ marginBottom: 28 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <i className="ti ti-arrow-narrow-right" style={{ fontSize: 13, color: "var(--green)" }} />
-                  <span className="tag" style={{ color: "var(--green)", fontSize: 10 }}>The one thing to do first</span>
-                </div>
-                <CopyBtn text={sec.first} />
-              </div>
-              <div className="first-action-item">
-                <Md text={sec.first} />
-              </div>
-            </div>
-          )}
-
-          {sec.raw && (
-            <div style={{ padding: "18px 20px", marginBottom: 24, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 8 }}>
-              <Md text={sec.raw} />
-            </div>
-          )}
-
-          {/* Mermaid diagram — only rendered when the model returned one */}
-          {turn.diagramCode && <MermaidDiagram code={turn.diagramCode} />}
+          <VerdictTabs sec={sec} diagramCode={turn.diagramCode} />
 
           <Divider label="Full transcripts" />
 
@@ -1356,13 +1914,43 @@ Do not describe what you're doing. Just produce the writing.`,
       const modeAdvisors       = currentMode.advisors;
       const activeChairmanSystem = currentMode.chairmanSystem;
 
+      const [selectedAdvisors, setSelectedAdvisors] = useState(() => {
+        try {
+          const saved = localStorage.getItem("council-selected-advisors");
+          return saved ? JSON.parse(saved) : ADVISORS.map(a => a.id);
+        } catch { return ADVISORS.map(a => a.id); }
+      });
+
+      useEffect(() => {
+        localStorage.setItem("council-selected-advisors", JSON.stringify(selectedAdvisors));
+      }, [selectedAdvisors]);
+
+      const activeAdvisors = useMemo(
+        () => ADVISORS.filter(a => selectedAdvisors.includes(a.id)),
+        [selectedAdvisors]
+      );
+      const safeAdvisors = activeAdvisors.length >= 2 ? activeAdvisors : ADVISORS.slice(0, 2);
+
+      // ── Mobile detection ─────────────────────────────────────────────
+      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
       // ── Sidebar state ────────────────────────────────────────────────
-      const [sidebarOpen,     setSidebarOpen]     = useState(true);
+      const [sidebarOpen,     setSidebarOpen]     = useState(!isMobile);
       const [sessions,        setSessions]        = useState([]);
       const [activeSessionId, setActiveSessionId] = useState(null);
 
       // ── Accordion open/close per panel across all turns ──────────────
       const [openPanels, setOpenPanels] = useState({});
+
+      // ── UI state ──────────────────────────────────────────────────────
+      const [showOptions,       setShowOptions]       = useState(false);
+      const [showFollowUpInput, setShowFollowUpInput] = useState(false);
+      const [spotlitAdvisor,    setSpotlitAdvisor]    = useState(null);
+
+      // ── File attachments ──────────────────────────────────────────────
+      const [attachedFiles, setAttachedFiles] = useState([]);
+      const addFiles   = useCallback(items => setAttachedFiles(prev => [...prev, ...items]), []);
+      const removeFile = useCallback(id    => setAttachedFiles(prev => prev.filter(f => f.id !== id)), []);
 
       // Phases 1+2 use the cheap Haiku model; Phase 3 uses the quality model.
       const advisorModel = fastAdvisors ? FAST_MODEL : model;
@@ -1400,7 +1988,8 @@ Do not describe what you're doing. Just produce the writing.`,
         setOpenPanels({});
         setError(null);
         setLive({}); setLiveRev(""); setLiveVerdict(""); setAdvisorDone({});
-      }, []);
+        if (isMobile) setSidebarOpen(false);
+      }, [isMobile]);
 
       // ── Reset to a blank canvas ──────────────────────────────────────
       const handleNewCouncil = useCallback(() => {
@@ -1412,6 +2001,9 @@ Do not describe what you're doing. Just produce the writing.`,
         setActiveSessionId(null);
         setOpenPanels({});
         setError(null);
+        setShowFollowUpInput(false);
+        setSpotlitAdvisor(null);
+        setAttachedFiles([]);
         setLive({}); setLiveRev(""); setLiveVerdict(""); setAdvisorDone({});
       }, []);
 
@@ -1419,50 +2011,42 @@ Do not describe what you're doing. Just produce the writing.`,
       // Accepts the new prompt and all prior completed turns. The prior turns
       // are serialized into a cached prefix block so each new turn costs only
       // the delta in tokens rather than re-encoding the full thread history.
-      const executeCouncilTurn = useCallback(async (newPrompt, priorTurns) => {
+      const executeCouncilTurn = useCallback(async (newPrompt, priorTurns, runAdvisors, runAttachedFiles) => {
         const priorContext = buildSessionContext(userContext, priorTurns);
-
-        // Prepend background context when the user has added it. Stored
-        // separately from `newPrompt` so the clean question is what gets saved
-        // to session history and shown in the UI.
         const userMsg = contextInput.trim()
           ? `BACKGROUND MATERIAL:\n${contextInput.trim()}\n\n---\n\nQUESTION / TASK:\n${newPrompt}`
           : newPrompt;
 
-        // The question wrapper pushes advisors toward specificity rather than
-        // generic commentary. "Name things" is deliberate — it forces commitment
-        // to concrete claims rather than hedged observations.
-        // The base question. Each advisor's lens is prepended per-call below
-        // so the shared system prompt can be cached across all five calls.
         const baseQuestion = priorContext
           ? `Prior context above. Follow-up question: ${userMsg}\n\nBuild only on what's new — no repetition. Name specific things.`
           : activeMode === "decision"
             ? `Question for the council:\n\n---\n${userMsg}\n---\n\nName specific things — failure modes, opportunities, actions, contradictions. No generic advice.`
             : `Input for review:\n\n---\n${userMsg}\n---\n\nReview it through your specific lens. Be specific and direct.`;
 
-        /* Phase 1: Active advisors in parallel ────────────────────────
-           Sliced to `advisorCount` so users can trade depth for cost.
-           TOKEN_BUDGETS.advisor (120) enforces the 100-word target; model
-           fills available space so a tight ceiling is the real control.   */
         setPhase("advisors");
         setLive({}); setAdvisorDone({});
         const collectedTexts = {};
-        const activeAdvisors = modeAdvisors.slice(0, advisorCount);
+        const activeAdvisors = runAdvisors;
+        const filesForTurn   = runAttachedFiles || [];
 
-        // Using SHARED_ADVISOR_SYSTEM for all five calls so calls 2–5 get a
-        // system-block cache hit. Each advisor's lens is injected into the user
-        // message to preserve the distinct analytical perspective.
         await Promise.all(activeAdvisors.map(advisor => {
-          const advSystem = advisor.system || SHARED_ADVISOR_SYSTEM;
-          const advUser   = advisor.lens ? `Your lens: ${advisor.lens}\n\n${baseQuestion}` : baseQuestion;
+          const advSystem      = advisor.system || SHARED_ADVISOR_SYSTEM;
+          const advisorPrompt  = advisor.lens ? `Your lens: ${advisor.lens}\n\n${baseQuestion}` : baseQuestion;
+          const advisorContent = buildUserMessageWithFiles(advisorPrompt, filesForTurn);
           return collect(
-            advSystem, advUser,
+            advSystem,
+            advisorContent,
             apiKey, advisorModel,
-            full => { collectedTexts[advisor.id] = full; setLive(p => ({ ...p, [advisor.id]: full })); },
+            full => {
+              collectedTexts[advisor.id] = full;
+              setLive(p => ({ ...p, [advisor.id]: full }));
+              setSpotlitAdvisor(advisor.id);
+            },
             priorContext,
             TOKEN_BUDGETS.advisor
           ).then(() => setAdvisorDone(p => ({ ...p, [advisor.id]: true })));
         }));
+        setSpotlitAdvisor(null);
 
         /* Phase 2: Consolidated peer review (optional) ────────────────
            Skipped entirely when peerReviewEnabled is false — eliminates one
@@ -1481,12 +2065,11 @@ Do not describe what you're doing. Just produce the writing.`,
           }).join("\n");
           const reviewCachePrefix = priorContext ? `${priorContext}\n\n${anonymousBlock}` : anonymousBlock;
 
-          // The peer reviewer is asked to identify errors (not just gaps) and
-          // to resolve the most important disagreement — this surfaces the
-          // actual tension the chairman needs to arbitrate.
+          const reviewPrompt  = `Question: "${newPrompt}"\n\n1. Which advisor's logic is most sound? (letter + one sentence why)\n2. Which advisor made an unsupported leap or factual error? (letter + what specifically)\n3. What is the single most important thing none of them addressed?\n4. What is the key tension the Chairman must explicitly resolve?\n\nBe specific. Identify errors, not just gaps.`;
+          const reviewContent = buildUserMessageWithFiles(reviewPrompt, filesForTurn);
           peerReviewText = await collect(
             "You are an impartial Council Analyst. Your job is to find errors in reasoning, not just missing topics. Be precise and critical. No preamble.",
-            `Question: "${newPrompt}"\n\n1. Which advisor's logic is most sound? (letter + one sentence why)\n2. Which advisor made an unsupported leap or factual error? (letter + what specifically)\n3. What is the single most important thing none of them addressed?\n4. What is the key tension the Chairman must explicitly resolve?\n\nBe specific. Identify errors, not just gaps.${contextInput.trim() ? `\n\nContext provided: ${contextInput.trim().slice(0, 300)}${contextInput.trim().length > 300 ? "…" : ""}` : ""}`,
+            reviewContent,
             apiKey, advisorModel,
             full => setLiveRev(full),
             reviewCachePrefix,
@@ -1528,9 +2111,9 @@ Do not describe what you're doing. Just produce the writing.`,
         const synthesisUserMsg = activeMode === "decision"
           ? synthesisPrompt
           : "Synthesize the advisor feedback above into your structured verdict. Follow the format defined in your instructions exactly.";
-
+        const chairmanContent = buildUserMessageWithFiles(synthesisUserMsg, filesForTurn);
         const rawVerdict = await collect(
-          activeChairmanSystem, synthesisUserMsg, apiKey, model,
+          activeChairmanSystem, chairmanContent, apiKey, model,
           full => setLiveVerdict(full),
           fullTranscript, // large cached block — grows cheaply with thread length
           chairmanTokenBudget
@@ -1539,7 +2122,7 @@ Do not describe what you're doing. Just produce the writing.`,
         const { verdictText, diagramCode } = splitVerdictAndDiagram(rawVerdict);
 
         return { prompt: newPrompt, mode: activeMode, advisorTexts: collectedTexts, peerReview: peerReviewText, verdict: verdictText, diagramCode };
-      }, [apiKey, model, advisorModel, advisorCount, peerReviewEnabled, generateDiagrams, activeMode, modeAdvisors, activeChairmanSystem, contextInput, userContext]);
+      }, [apiKey, model, advisorModel, peerReviewEnabled, generateDiagrams, activeMode, activeChairmanSystem, contextInput, userContext]);
 
       // ── Unified turn runner ──────────────────────────────────────────
       // Handles both the first turn (creates a new DB session) and follow-up
@@ -1548,10 +2131,13 @@ Do not describe what you're doing. Just produce the writing.`,
       const runTurn = useCallback(async (newPrompt) => {
         if (!newPrompt.trim() || isProcessing) return;
         setError(null);
-        const priorTurns = turns; // snapshot at dispatch time
+        setShowFollowUpInput(false);
+        const priorTurns       = turns;          // snapshot at dispatch time
+        const runAdvisors      = activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount);
+        const runAttachedFiles = attachedFiles;  // snapshot files at dispatch time
 
         try {
-          const completedTurn = await executeCouncilTurn(newPrompt, priorTurns);
+          const completedTurn = await executeCouncilTurn(newPrompt, priorTurns, runAdvisors, runAttachedFiles);
           const updatedTurns  = [...priorTurns, completedTurn];
           setTurns(updatedTurns);
 
@@ -1569,7 +2155,7 @@ Do not describe what you're doing. Just produce the writing.`,
           setError(e.message || "Something went wrong.");
           setPhase(priorTurns.length === 0 ? "idle" : "conversation");
         }
-      }, [isProcessing, turns, activeDbSessionId, executeCouncilTurn, refreshSessionList]);
+      }, [isProcessing, turns, activeDbSessionId, safeAdvisors, attachedFiles, executeCouncilTurn, refreshSessionList]);
 
       const handleInitialSubmit = useCallback(() => {
         if (!initialQuestion.trim() || isProcessing) return;
@@ -1618,32 +2204,40 @@ Do not describe what you're doing. Just produce the writing.`,
       return (
         <div className="app-shell">
 
+          {isMobile && sidebarOpen && (
+            <div
+              onClick={() => setSidebarOpen(false)}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 199 }}
+            />
+          )}
           <HistorySidebar
             sessions={sessions} activeSessionId={activeSessionId}
-            isOpen={sidebarOpen}
+            isOpen={sidebarOpen} isMobile={isMobile}
             onSelect={handleSelectSession}
             onNewCouncil={handleNewCouncil}
             onToggle={() => setSidebarOpen(v => !v)}
           />
 
           <div className="main-panel">
+            <AppHeader isRunning={isProcessing} />
             <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 0 80px" }}>
 
               {showSettings && (
                 <SettingsPanel
                   apiKey={apiKey} model={model} onModel={setModel}
                   fastAdvisors={fastAdvisors} onFast={setFastAdvisors}
-                  advisorCount={advisorCount} onAdvisorCount={setAdvisorCount}
+                  advisorCount={safeAdvisors.length}
+                  onAdvisorCount={n => { setAdvisorCount(n); setSelectedAdvisors(ADVISORS.slice(0, n).map(a => a.id)); }}
                   peerReviewEnabled={peerReviewEnabled} onPeerReview={setPeerReviewEnabled}
                   generateDiagrams={generateDiagrams} onGenerateDiagrams={setGenerateDiagrams}
-                  onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); setAdvisorCount(3); setPeerReviewEnabled(false); setGenerateDiagrams(false); }}
+                  onBudgetMode={() => { setModel(FAST_MODEL); setFastAdvisors(true); setAdvisorCount(3); setSelectedAdvisors(ADVISORS.slice(0, 3).map(a => a.id)); setPeerReviewEnabled(false); setGenerateDiagrams(false); }}
                   onClearKey={() => { onClearKey(); setShowSettings(false); }}
                   onClose={() => setShowSettings(false)}
                   userContext={userContext} onUserContext={setUserContext} />
               )}
 
               {/* ── Page header ──────────────────────────────────────── */}
-              <div style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32 }}>
+              <div className="council-header" style={{ padding: "32px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   {!sidebarOpen && (
                     <button onClick={() => setSidebarOpen(true)} title="Show history"
@@ -1675,12 +2269,12 @@ Do not describe what you're doing. Just produce the writing.`,
                   <button onClick={() => setShowSettings(true)}
                     style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: "var(--t2)", cursor: "pointer" }}>
                     <i className="ti ti-settings" style={{ fontSize: 14 }} />
-                    {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)} · {advisorCount}adv
+                    {fastAdvisors ? `Haiku → ${modelLabel(model)}` : modelLabel(model)} · {safeAdvisors.length}adv
                   </button>
                 </div>
               </div>
 
-              <div style={{ padding: "0 32px" }}>
+              <div className="council-content" style={{ padding: "0 32px" }}>
 
                 {/* ── Initial prompt input (first turn only) ─────────── */}
                 {phase === "idle" && turns.length === 0 && (
@@ -1688,40 +2282,36 @@ Do not describe what you're doing. Just produce the writing.`,
                     <ModeSelector activeMode={activeMode} onSelect={setActiveMode} />
                     <TemplateRow mode={activeMode} onSelect={t => setInitialQuestion(t)} />
 
+                    {/* Hero example prompts — decision mode only */}
+                    {activeMode === "decision" && !initialQuestion && (
+                      <div style={{ marginBottom: 16, textAlign: "center" }}>
+                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 8 }}>Or try an example</p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          {EXAMPLE_PROMPTS.map((p, i) => (
+                            <button key={i} onClick={() => setInitialQuestion(p)}
+                              style={{ padding: "9px 14px", fontSize: 12, lineHeight: 1.5, background: "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 7, color: "var(--t2)", cursor: "pointer", textAlign: "left", transition: "border-color .15s, color .15s" }}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--amber-ring)"; e.currentTarget.style.color = "var(--t1)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--bd)"; e.currentTarget.style.color = "var(--t2)"; }}>
+                              <i className="ti ti-arrow-right" style={{ fontSize: 11, color: "var(--amber)", marginRight: 7 }} />{p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* ── Context panel ─────────────────────────────── */}
                     <div style={{ marginBottom: 16 }}>
-                      <button
-                        onClick={() => setShowContextPanel(p => !p)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 8, width: "100%",
-                          background: showContextPanel ? "var(--bg3)" : "none",
-                          border: `1px solid ${contextInput ? "var(--amber-ring)" : "var(--bd)"}`,
-                          borderRadius: 6, padding: "7px 12px", fontSize: 12,
-                          color: contextInput ? "var(--amber)" : "var(--t3)", cursor: "pointer",
-                        }}
-                      >
+                      <button onClick={() => setShowContextPanel(p => !p)}
+                        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: showContextPanel ? "var(--bg3)" : "none", border: `1px solid ${contextInput ? "var(--amber-ring)" : "var(--bd)"}`, borderRadius: 6, padding: "7px 12px", fontSize: 12, color: contextInput ? "var(--amber)" : "var(--t3)", cursor: "pointer" }}>
                         <i className="ti ti-paperclip" style={{ fontSize: 13 }} />
                         {contextInput ? "Context added" : "Add background context"}
-                        {contextInput && (
-                          <span style={{ fontSize: 10, fontFamily: "var(--mono)", marginLeft: 4, opacity: 0.7 }}>
-                            (~{Math.round(contextInput.length / 4)} tokens)
-                          </span>
-                        )}
+                        {contextInput && <span style={{ fontSize: 10, fontFamily: "var(--mono)", marginLeft: 4, opacity: 0.7 }}>(~{Math.round(contextInput.length / 4)} tokens)</span>}
                         <i className={`ti ti-chevron-${showContextPanel ? "up" : "down"}`} style={{ fontSize: 12, marginLeft: "auto" }} />
                       </button>
                       {showContextPanel && (
-                        <textarea
-                          value={contextInput}
-                          onChange={e => setContextInput(e.target.value)}
-                          placeholder="Paste background material here — a document, article, code snippet, or personal context. Sent to all advisors but kept separate from your question."
-                          style={{
-                            width: "100%", marginTop: 6, padding: "12px 14px",
-                            background: "var(--bg3)", border: "1px solid var(--bd2)",
-                            borderRadius: 6, color: "var(--t1)", fontSize: 13,
-                            lineHeight: 1.7, resize: "vertical", minHeight: 120,
-                            fontFamily: "var(--sans)", outline: "none",
-                          }}
-                        />
+                        <textarea value={contextInput} onChange={e => setContextInput(e.target.value)}
+                          placeholder="Paste background material — a document, article, code snippet, or personal context. Sent to all advisors but kept separate from your question."
+                          style={{ width: "100%", marginTop: 6, padding: "12px 14px", background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: 6, color: "var(--t1)", fontSize: 13, lineHeight: 1.7, resize: "vertical", minHeight: 120, fontFamily: "var(--sans)", outline: "none" }} />
                       )}
                     </div>
 
@@ -1730,14 +2320,46 @@ Do not describe what you're doing. Just produce the writing.`,
                       onChange={e => setInitialQuestion(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleInitialSubmit(); }}
                       placeholder={currentMode.inputPlaceholder}
-                      style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s" }}
+                      style={{ width: "100%", minHeight: 112, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: showOptions ? "8px 8px 0 0" : 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s, border-radius 0.15s" }}
                     />
+
+                    {/* File attachments */}
+                    <FileAttachmentPanel files={attachedFiles} onAdd={addFiles} onRemove={removeFile} />
+                    <FileTokenWarning files={attachedFiles} />
+
+                    {/* Collapsible options row */}
+                    {showOptions && (
+                      <div className="options-panel fade-up">
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                          <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
+                          <button onClick={() => setFastAdvisors(v => !v)}
+                            className={`diagram-toggle ${fastAdvisors ? "is-on" : "is-off"}`}
+                            style={{ borderColor: fastAdvisors ? "var(--green-ring)" : undefined, color: fastAdvisors ? "var(--green)" : undefined, background: fastAdvisors ? "var(--green-tint)" : undefined }}>
+                            <i className="ti ti-bolt" style={{ fontSize: 13 }} />
+                            {fastAdvisors ? "Fast advisors on" : "Fast advisors"}
+                          </button>
+                          <button onClick={() => setPeerReviewEnabled(v => !v)}
+                            className={`diagram-toggle ${peerReviewEnabled ? "is-on" : "is-off"}`}
+                            style={{ borderColor: peerReviewEnabled ? "var(--purple-ring)" : undefined, color: peerReviewEnabled ? "var(--purple)" : undefined, background: peerReviewEnabled ? "var(--purple-tint)" : undefined }}>
+                            <i className="ti ti-analyze" style={{ fontSize: 13 }} />
+                            {peerReviewEnabled ? "Peer review on" : "Peer review"}
+                          </button>
+                        </div>
+                        <AdvisorPicker selected={selectedAdvisors} onChange={setSelectedAdvisors} />
+                      </div>
+                    )}
+
                     <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0 28px" }}>
                       <button onClick={handleInitialSubmit} disabled={!initialQuestion.trim()}
                         style={{ flex: 1, padding: "13px 20px", fontFamily: "var(--display)", fontSize: 18, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !initialQuestion.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
                         CONVENE THE COUNCIL
                       </button>
-                      <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
+                      <button onClick={() => setShowOptions(v => !v)} title="Toggle options"
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 12px", fontSize: 12, background: showOptions ? "var(--bg3)" : "var(--bg2)", border: "1px solid var(--bd)", borderRadius: 6, color: showOptions ? "var(--t1)" : "var(--t3)", cursor: "pointer", transition: "all .15s" }}>
+                        <i className="ti ti-adjustments-horizontal" style={{ fontSize: 13 }} />
+                        Options
+                        <i className={`ti ti-chevron-${showOptions ? "up" : "down"}`} style={{ fontSize: 11 }} />
+                      </button>
                       <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
                     </div>
 
@@ -1747,10 +2369,15 @@ Do not describe what you're doing. Just produce the writing.`,
                       </div>
                     )}
 
-                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>The {advisorCount === 5 ? "five" : advisorCount === 4 ? "four" : advisorCount === 3 ? "three" : advisorCount === 2 ? "two" : ""} advisors</p>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      {modeAdvisors.slice(0, advisorCount).map((a, i) => (
-                        <div key={a.id} style={{ gridColumn: (advisorCount % 2 !== 0 && i === advisorCount - 1) ? "span 2" : undefined, padding: "12px 14px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
+                    {(() => {
+                      const displayAdvisors = activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount);
+                      return (<>
+                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>
+                          The {["","","two","three","four","five"][displayAdvisors.length] || displayAdvisors.length} advisors
+                        </p>
+                        <div className="advisor-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          {displayAdvisors.map((a, i) => (
+                        <div key={a.id} style={{ gridColumn: (displayAdvisors.length % 2 !== 0 && i === displayAdvisors.length - 1) ? "span 2" : undefined, padding: "12px 14px", background: a.tint, border: `1px solid ${a.ring}`, borderRadius: 7 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                             <i className={`ti ${a.icon}`} style={{ fontSize: 13, color: a.accent }} />
                             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>{a.name}</span>
@@ -1758,7 +2385,9 @@ Do not describe what you're doing. Just produce the writing.`,
                           <p className="tag" style={{ color: "var(--t3)", fontSize: 9 }}>{a.tagline}</p>
                         </div>
                       ))}
-                    </div>
+                        </div>
+                      </>);
+                    })()}
                   </div>
                 )}
 
@@ -1781,13 +2410,15 @@ Do not describe what you're doing. Just produce the writing.`,
                       </div>
                     )}
 
-                    <PhaseStepper phase={phase} showReview={peerReviewEnabled} />
+                    <PhaseStepper phase={phase} showReview={peerReviewEnabled}
+                      advisorsDone={Object.keys(advisorDone).length} advisorsTotal={safeAdvisors.length} />
 
                     {phase === "advisors" && (
                       <div>
                         <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Advisors deliberating</p>
-                        {modeAdvisors.map(a => (
-                          <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors" />
+                        {(activeMode === "decision" ? safeAdvisors : modeAdvisors.slice(0, advisorCount)).map(a => (
+                          <AdvisorRow key={a.id} advisor={a} live={live[a.id]} done={!!advisorDone[a.id]} phase="advisors"
+                            isSpotlit={!spotlitAdvisor || spotlitAdvisor === a.id || !!advisorDone[a.id]} />
                         ))}
                       </div>
                     )}
@@ -1829,39 +2460,65 @@ Do not describe what you're doing. Just produce the writing.`,
                 {/* ── Follow-up input and export (conversation phase) ── */}
                 {phase === "conversation" && turns.length > 0 && (
                   <div className="follow-up-section fade-up">
-                    <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Continue the conversation</p>
-                    <textarea
-                      value={followUpInput}
-                      onChange={e => setFollowUpInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleFollowUpSubmit(); }}
-                      placeholder="Ask a follow-up, push deeper on any point, or request a different angle…"
-                      style={{ width: "100%", minHeight: 80, padding: "14px 16px", fontSize: 14, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s" }}
-                    />
 
-                    {error && (
-                      <div style={{ padding: "10px 14px", margin: "8px 0", background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
-                        <i className="ti ti-alert-circle" style={{ marginRight: 7 }} />{error}
+                    {/* Primary CTAs */}
+                    {!showFollowUpInput && (
+                      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+                        <button onClick={() => { setShowFollowUpInput(true); setTimeout(() => document.getElementById("follow-up-textarea")?.focus(), 50); }}
+                          style={{ flex: 1, padding: "13px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", transition: "opacity .15s" }}>
+                          ASK A FOLLOW-UP
+                        </button>
+                        <button onClick={handleNewCouncil}
+                          style={{ flex: 1, padding: "13px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--bg3)", border: "1px solid var(--bd)", color: "var(--t2)", borderRadius: 6, cursor: "pointer", transition: "all .15s" }}>
+                          NEW COUNCIL
+                        </button>
                       </div>
                     )}
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-                      <button onClick={handleFollowUpSubmit} disabled={!followUpInput.trim()}
-                        style={{ flex: 1, padding: "11px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !followUpInput.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
-                        FOLLOW UP
-                      </button>
-                      <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
-                      <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
-                    </div>
+                    {/* Follow-up input (revealed on demand) */}
+                    {showFollowUpInput && (
+                      <div className="fade-up">
+                        <p className="tag" style={{ color: "var(--t3)", marginBottom: 10 }}>Continue the conversation</p>
+                        <textarea
+                          id="follow-up-textarea"
+                          value={followUpInput}
+                          onChange={e => setFollowUpInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleFollowUpSubmit(); }}
+                          placeholder="Ask a follow-up, push deeper on any point, or request a different angle…"
+                          style={{ width: "100%", minHeight: 80, padding: "14px 16px", fontSize: 14, lineHeight: 1.6, resize: "vertical", background: "var(--bg2)", border: "1px solid var(--bd2)", borderRadius: 8, color: "var(--t1)", outline: "none", fontFamily: "var(--sans)", transition: "border-color 0.2s", marginBottom: 10 }}
+                        />
 
-                    <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+                        <FileAttachmentPanel files={attachedFiles} onAdd={addFiles} onRemove={removeFile} />
+                        <FileTokenWarning files={attachedFiles} />
+
+                        {error && (
+                          <div style={{ padding: "10px 14px", margin: "8px 0", background: "var(--red-tint)", border: "1px solid var(--red-ring)", borderRadius: 7, fontSize: 13, color: "var(--red)" }}>
+                            <i className="ti ti-alert-circle" style={{ marginRight: 7 }} />{error}
+                          </div>
+                        )}
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                          <button onClick={handleFollowUpSubmit} disabled={!followUpInput.trim()}
+                            style={{ flex: 1, padding: "11px 18px", fontFamily: "var(--display)", fontSize: 16, letterSpacing: 2, background: "var(--amber)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: !followUpInput.trim() ? 0.3 : 1, transition: "opacity .15s" }}>
+                            FOLLOW UP
+                          </button>
+                          <DiagramToggle enabled={generateDiagrams} onToggle={() => setGenerateDiagrams(v => !v)} />
+                          <kbd style={{ fontSize: 11, color: "var(--t3)", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, padding: "3px 7px", flexShrink: 0, fontFamily: "var(--mono)" }}>⌘ ↵</kbd>
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: 8, marginTop: showFollowUpInput ? 16 : 0 }}>
                       <button onClick={exportMarkdown}
                         style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--t2)", background: "var(--bg3)", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
                         <i className="ti ti-download" style={{ fontSize: 12 }} />Export markdown
                       </button>
-                      <button onClick={handleNewCouncil}
-                        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--t3)", background: "transparent", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
-                        <i className="ti ti-plus" style={{ fontSize: 12 }} />New council
-                      </button>
+                      {showFollowUpInput && (
+                        <button onClick={handleNewCouncil}
+                          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--t3)", background: "transparent", border: "1px solid var(--bd)", padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
+                          <i className="ti ti-plus" style={{ fontSize: 12 }} />New council
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
